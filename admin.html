@@ -1,95 +1,39 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Admin - Rodadas</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pelada de Segunda - Login</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-gray-100 min-h-screen p-4">
-  <h1 class="text-2xl font-bold text-center mb-4">Rodadas - Pelada de Segunda</h1>
-
-  <div class="text-center mb-4">
-    <button onclick="novaRodada()" class="bg-red-600 text-white px-4 py-2 rounded">Iniciar Nova Rodada</button>
-    <p id="mensagem" class="mt-2 text-blue-600 text-sm"></p>
-  </div>
-
-  <div class="mb-6">
-    <h2 class="text-xl font-semibold mb-2">Titulares</h2>
-    <ul id="listaTitulares" class="list-disc list-inside text-sm"></ul>
-
-    <h2 class="text-xl font-semibold mt-4 mb-2">Suplentes</h2>
-    <ul id="listaSuplentes" class="list-disc list-inside text-sm"></ul>
-  </div>
-
-  <div>
-    <h2 class="text-xl font-bold mb-2">Rodadas Anteriores</h2>
-    <div id="historico" class="space-y-4 text-sm"></div>
-  </div>
-
-  <div class="mt-10">
-    <h2 class="text-xl font-bold mb-2">Ranking Geral</h2>
-    <ul id="rankingGeral" class="list-decimal list-inside text-sm"></ul>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+  <div class="text-center w-full max-w-sm px-4">
+    <h1 class="text-3xl font-bold mb-6">Pelada de Segunda</h1>
+    <input id="nome" type="text" placeholder="Nome" class="mb-3 px-4 py-2 border rounded w-full" />
+    <input id="senha" type="password" placeholder="Senha" class="mb-3 px-4 py-2 border rounded w-full" />
+    <button onclick="logar()" class="w-full bg-blue-600 text-white font-semibold py-2 rounded">Entrar</button>
+    <p id="mensagem" class="mt-3 text-red-600 text-sm font-medium"></p>
   </div>
 
   <script>
-    const inscritos = JSON.parse(localStorage.getItem("inscritos") || "[]");
-    const rodadas = JSON.parse(localStorage.getItem("rodadas") || "[]");
-    const ranking = JSON.parse(localStorage.getItem("ranking") || "{}")
+    function logar() {
+      const nome = document.getElementById("nome").value.trim();
+      const senha = document.getElementById("senha").value.trim();
+      const mensagem = document.getElementById("mensagem");
 
-    const listaTitulares = document.getElementById("listaTitulares");
-    const listaSuplentes = document.getElementById("listaSuplentes");
-    const historico = document.getElementById("historico");
-    const rankingGeral = document.getElementById("rankingGeral");
+      const dados = JSON.parse(localStorage.getItem("cadastroJogadores") || "[]");
+      console.log("Jogadores cadastrados:", dados);
+      console.log("Tentando login com:", nome, senha);
 
-    const titulares = inscritos.filter(i => !i.suplente);
-    const suplentes = inscritos.filter(i => i.suplente);
+      const encontrado = dados.find(j => j.nome === nome && j.senha === senha);
 
-    titulares.forEach(j => {
-      const li = document.createElement("li");
-      li.textContent = `${j.nome} (${j.posicao}) - ${j.data}`;
-      listaTitulares.appendChild(li);
-    });
+      if (!encontrado) {
+        mensagem.textContent = "Nome ou senha inválidos.";
+        return;
+      }
 
-    suplentes.forEach(j => {
-      const li = document.createElement("li");
-      li.textContent = `${j.nome} (${j.posicao}) - ${j.data}`;
-      listaSuplentes.appendChild(li);
-    });
-
-    rodadas.forEach((rodada) => {
-      const div = document.createElement("div");
-      div.classList.add("border", "p-2", "rounded", "bg-white");
-      div.innerHTML = `<strong>${rodada.data}</strong><ul class='list-disc list-inside'>${rodada.inscritos.map(j => `<li>${j.nome} (${j.posicao}) - ${j.suplente ? 'Suplente' : 'Titular'}</li>`).join('')}</ul>`;
-      historico.appendChild(div);
-    });
-
-    const rankingOrdenado = Object.entries(ranking).sort((a, b) => b[1] - a[1]);
-    rankingOrdenado.forEach(([nome, pontos]) => {
-      const li = document.createElement("li");
-      li.textContent = `${nome} - ${pontos} ponto${pontos > 1 ? 's' : ''}`;
-      rankingGeral.appendChild(li);
-    });
-
-    function novaRodada() {
-      if (inscritos.length === 0) return;
-
-      const nova = {
-        data: new Date().toLocaleDateString("pt-BR"),
-        inscritos
-      };
-      rodadas.unshift(nova);
-
-      // Atualiza ranking
-      titulares.forEach(j => {
-        if (!ranking[j.nome]) ranking[j.nome] = 0;
-        ranking[j.nome] += 1;
-      });
-
-      localStorage.setItem("rodadas", JSON.stringify(rodadas));
-      localStorage.setItem("ranking", JSON.stringify(ranking));
-      localStorage.removeItem("inscritos");
-      document.getElementById("mensagem").textContent = "Rodada salva! Inscrições reiniciadas.";
+      localStorage.setItem("usuarioLogado", JSON.stringify(encontrado));
+      window.location.href = "jogar.html";
     }
   </script>
 </body>
