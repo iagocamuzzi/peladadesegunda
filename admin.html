@@ -14,6 +14,8 @@
     <button onclick="novaRodada()" class="bg-red-600 text-white px-4 py-2 rounded">Iniciar Nova Rodada</button>
     <button onclick="exportarImagem()" class="bg-blue-600 text-white px-4 py-2 rounded">Exportar Time</button>
     <button onclick="resetarRanking()" class="bg-gray-700 text-white px-4 py-2 rounded">Zerar Ranking</button>
+    <button onclick="sortearTimes()" class="bg-green-700 text-white px-4 py-2 rounded">Sortear Times</button>
+    <button onclick="cadastrarFakeJogadores()" class="bg-yellow-500 text-black px-4 py-2 rounded">Cadastrar Fakes</button>
     <p id="mensagem" class="mt-2 text-blue-600 text-sm"></p>
   </div>
 
@@ -35,6 +37,11 @@
   <div class="mt-10">
     <h2 class="text-xl font-bold mb-2">Ranking Geral</h2>
     <ul id="rankingGeral" class="list-decimal list-inside text-sm"></ul>
+  </div>
+
+  <div class="mt-10">
+    <h2 class="text-xl font-bold mb-2">Times Sorteados</h2>
+    <div id="timesSorteados" class="space-y-4 text-sm"></div>
   </div>
 
   <script>
@@ -111,6 +118,48 @@
       localStorage.setItem("ranking", JSON.stringify({}));
       document.getElementById("mensagem").textContent = "Ranking zerado com sucesso.";
       setTimeout(() => window.location.reload(), 1000);
+    }
+
+    function cadastrarFakeJogadores() {
+      const fakes = [];
+      for (let i = 1; i <= 15; i++) {
+        fakes.push({ nome: `Jogador ${i}`, senha: "123", posicao: "linha" });
+      }
+      for (let i = 1; i <= 3; i++) {
+        fakes.push({ nome: `Goleiro ${i}`, senha: "123", posicao: "goleiro" });
+      }
+      localStorage.setItem("cadastroJogadores", JSON.stringify(fakes));
+      alert("Jogadores de teste cadastrados. Agora é só fazer login e se inscrever!");
+    }
+
+    function sortearTimes() {
+      const goleiros = titulares.filter(p => p.posicao === "goleiro");
+      const linha = titulares.filter(p => p.posicao === "linha");
+
+      if (goleiros.length < 3 || linha.length < 15) {
+        alert("É necessário 15 jogadores de linha e 3 goleiros para sortear.");
+        return;
+      }
+
+      linha.sort(() => Math.random() - 0.5);
+      goleiros.sort(() => Math.random() - 0.5);
+
+      const times = [[], [], []];
+      for (let i = 0; i < 15; i++) {
+        times[i % 3].push(linha[i]);
+      }
+      for (let i = 0; i < 3; i++) {
+        times[i].unshift(goleiros[i]);
+      }
+
+      const container = document.getElementById("timesSorteados");
+      container.innerHTML = "";
+      times.forEach((time, index) => {
+        const div = document.createElement("div");
+        div.classList.add("bg-white", "p-3", "rounded", "shadow");
+        div.innerHTML = `<strong>Time ${index + 1}</strong><ul class='list-disc list-inside mt-1'>${time.map(p => `<li>${p.nome} (${p.posicao})</li>`).join('')}</ul>`;
+        container.appendChild(div);
+      });
     }
   </script>
 </body>
