@@ -5,21 +5,26 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Admin - Rodadas</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
 </head>
 <body class="bg-gray-100 min-h-screen p-4">
   <h1 class="text-2xl font-bold text-center mb-4">Rodadas - Pelada de Segunda</h1>
 
-  <div class="text-center mb-4">
+  <div class="text-center mb-4 space-x-2">
     <button onclick="novaRodada()" class="bg-red-600 text-white px-4 py-2 rounded">Iniciar Nova Rodada</button>
+    <button onclick="exportarImagem()" class="bg-blue-600 text-white px-4 py-2 rounded">Exportar Time</button>
+    <button onclick="resetarRanking()" class="bg-gray-700 text-white px-4 py-2 rounded">Zerar Ranking</button>
     <p id="mensagem" class="mt-2 text-blue-600 text-sm"></p>
   </div>
 
-  <div class="mb-6">
-    <h2 class="text-xl font-semibold mb-2">Titulares</h2>
-    <ul id="listaTitulares" class="list-disc list-inside text-sm"></ul>
+  <div id="conteudoTime">
+    <div class="mb-6">
+      <h2 class="text-xl font-semibold mb-2">Titulares</h2>
+      <ul id="listaTitulares" class="list-disc list-inside text-sm"></ul>
 
-    <h2 class="text-xl font-semibold mt-4 mb-2">Suplentes</h2>
-    <ul id="listaSuplentes" class="list-disc list-inside text-sm"></ul>
+      <h2 class="text-xl font-semibold mt-4 mb-2">Suplentes</h2>
+      <ul id="listaSuplentes" class="list-disc list-inside text-sm"></ul>
+    </div>
   </div>
 
   <div>
@@ -90,6 +95,22 @@
       localStorage.setItem("ranking", JSON.stringify(ranking));
       localStorage.removeItem("inscritos");
       document.getElementById("mensagem").textContent = "Rodada salva! Inscrições reiniciadas.";
+    }
+
+    function exportarImagem() {
+      const target = document.getElementById("conteudoTime");
+      html2canvas(target).then(canvas => {
+        const link = document.createElement("a");
+        link.download = `time-${new Date().toLocaleDateString("pt-BR")}.png`;
+        link.href = canvas.toDataURL();
+        link.click();
+      });
+    }
+
+    function resetarRanking() {
+      localStorage.setItem("ranking", JSON.stringify({}));
+      document.getElementById("mensagem").textContent = "Ranking zerado com sucesso.";
+      setTimeout(() => window.location.reload(), 1000);
     }
   </script>
 </body>
