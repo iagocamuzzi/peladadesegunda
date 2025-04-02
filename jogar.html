@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quero Jogar - Pelada de Segunda</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+  <div class="text-center w-full max-w-md px-4">
+    <h1 class="text-2xl font-bold mb-4">Bem-vindo, <span id="nomeJogador"></span>!</h1>
+    <button onclick="queroJogar()" class="rounded-full h-32 w-32 text-xl font-bold shadow-xl bg-green-600 text-white mx-auto">
+      QUERO<br />JOGAR!
+    </button>
+    <p id="mensagem" class="mt-4 text-blue-600 font-medium text-sm"></p>
+    <div class="mt-6 text-sm text-gray-500">
+      Admin? <a href="admin.html" class="text-blue-600 underline">Ver rodadas</a>
+    </div>
+  </div>
+
+  <script>
+    const usuario = JSON.parse(localStorage.getItem("usuarioLogado"));
+    const inscritos = JSON.parse(localStorage.getItem("inscritos") || "[]");
+    const mensagem = document.getElementById("mensagem");
+
+    if (!usuario) {
+      window.location.href = "index.html";
+    } else {
+      document.getElementById("nomeJogador").textContent = usuario.nome;
+    }
+
+    function queroJogar() {
+      const jaInscrito = inscritos.some(j => j.nome === usuario.nome);
+      if (jaInscrito) {
+        mensagem.textContent = "Você já está inscrito!";
+        return;
+      }
+
+      const totalLinha = inscritos.filter(i => i.posicao === "linha" && !i.suplente).length;
+      const totalGoleiro = inscritos.filter(i => i.posicao === "goleiro" && !i.suplente).length;
+
+      const limiteAtingido = usuario.posicao === "linha" ? totalLinha >= 15 : totalGoleiro >= 3;
+      const novo = {
+        ...usuario,
+        suplente: limiteAtingido,
+        data: new Date().toLocaleString("pt-BR")
+      };
+
+      inscritos.push(novo);
+      localStorage.setItem("inscritos", JSON.stringify(inscritos));
+      mensagem.textContent = limiteAtingido ? "Você entrou como suplente." : "Inscrição confirmada!";
+    }
+  </script>
+</body>
+</html>

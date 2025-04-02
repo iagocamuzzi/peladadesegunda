@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cadastro - Pelada de Segunda</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+  <div class="text-center w-full max-w-sm px-4">
+    <h1 class="text-2xl font-bold mb-4">Acesso do Administrador</h1>
+    <div id="form-admin">
+      <input id="senhaAdmin" type="password" placeholder="Senha do administrador" class="mb-3 px-4 py-2 border rounded w-full" />
+      <button onclick="validarAdmin()" class="w-full bg-blue-600 text-white font-semibold py-2 rounded">Entrar</button>
+      <p id="mensagem" class="mt-3 text-red-600 text-sm font-medium"></p>
+    </div>
+
+    <div id="form-cadastro" class="hidden">
+      <h2 class="text-xl font-semibold mb-4">Cadastro de Jogador</h2>
+      <input id="nome" type="text" placeholder="Nome" class="mb-2 px-4 py-2 border rounded w-full" />
+      <input id="senha" type="password" placeholder="Senha" class="mb-2 px-4 py-2 border rounded w-full" />
+      <select id="posicao" class="mb-2 px-4 py-2 border rounded w-full">
+        <option value="linha">Linha</option>
+        <option value="goleiro">Goleiro</option>
+      </select>
+      <input id="foto" type="file" accept="image/*" class="mb-3 w-full" />
+      <button onclick="cadastrarJogador()" class="w-full bg-green-600 text-white font-semibold py-2 rounded">Cadastrar</button>
+      <p id="mensagemCadastro" class="mt-3 text-blue-600 text-sm font-medium"></p>
+    </div>
+  </div>
+
+  <script>
+    const senhaCerta = "pelada2024";
+
+    function validarAdmin() {
+      const senha = document.getElementById("senhaAdmin").value;
+      const mensagem = document.getElementById("mensagem");
+      if (senha === senhaCerta) {
+        document.getElementById("form-admin").classList.add("hidden");
+        document.getElementById("form-cadastro").classList.remove("hidden");
+        mensagem.textContent = "";
+      } else {
+        mensagem.textContent = "Senha do administrador incorreta.";
+      }
+    }
+
+    function cadastrarJogador() {
+      const nome = document.getElementById("nome").value.trim();
+      const senha = document.getElementById("senha").value.trim();
+      const posicao = document.getElementById("posicao").value;
+      const fotoInput = document.getElementById("foto");
+      const mensagem = document.getElementById("mensagemCadastro");
+
+      if (!nome || !senha) {
+        mensagem.textContent = "Preencha todos os campos.";
+        return;
+      }
+
+      const jogadores = JSON.parse(localStorage.getItem("cadastroJogadores") || "[]");
+      const existe = jogadores.find(j => j.nome.toLowerCase() === nome.toLowerCase());
+      if (existe) {
+        mensagem.textContent = "Jogador já cadastrado.";
+        return;
+      }
+
+      const novo = { nome, senha, posicao };
+
+      const reader = new FileReader();
+      if (fotoInput.files[0]) {
+        reader.onloadend = () => {
+          novo.foto = reader.result;
+          jogadores.push(novo);
+          localStorage.setItem("cadastroJogadores", JSON.stringify(jogadores));
+          mensagem.textContent = "Cadastro realizado com sucesso!";
+          limparCampos();
+        };
+        reader.readAsDataURL(fotoInput.files[0]);
+      } else {
+        novo.foto = null;
+        jogadores.push(novo);
+        localStorage.setItem("cadastroJogadores", JSON.stringify(jogadores));
+        mensagem.textContent = "Cadastro realizado com sucesso!";
+        limparCampos();
+      }
+    }
+
+    function limparCampos() {
+      document.getElementById("nome").value = "";
+      document.getElementById("senha").value = "";
+      document.getElementById("foto").value = "";
+      document.getElementById("posicao").value = "linha";
+    }
+  </script>
+</body>
+</html>
