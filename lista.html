@@ -1,0 +1,83 @@
+<!doctype html><html lang="pt-BR"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lista – Pelada</title>
+<style>
+ body{font-family:system-ui;margin:24px}
+ .pill{display:inline-block;background:#eee;padding:6px 10px;border-radius:999px;margin-right:6px}
+ ol,ul{margin-top:8px}
+ .time{opacity:.7;font-variant-numeric:tabular-nums}
+ button{padding:10px 14px;border:0;border-radius:8px;background:#25D366;color:#fff}
+</style>
+<h2>Pelada de Segunda ⚽</h2>
+<div id="stats"></div>
+<h3>Jogadores (Titulares)</h3>
+<ol id="tit"></ol>
+<h3>Suplentes</h3>
+<ul id="sup"></ul>
+<p><button id="wa">Enviar lista no WhatsApp</button></p>
+<script>
+const CSV_URL = 'COLE_AQUI_A_URL_CSV_DA_PLANILHA';
+const PRECO = 20, TIT_MAX = 15;
+
+function tuesdayStart(d=new Date()){
+  const local = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const day = local.getDay(); // 0=dom,1=seg,2=ter
+  const back = (day>=2)? day-2 : 7-(2-day);
+  local.setDate(local.getDate()-back);
+  local.setHours(0,0,0,0);
+  return local;
+}
+function fmt(h){const d=new Date(h);return [d.getHours(),d.getMinutes(),d.getSeconds()].map(x=>String(x).padStart(2,'0')).join(':')}
+
+async function load(){
+  const txt = await (await fetch(CSV_URL,{cache:'no-store'})).text();
+  const lines = txt.split(/\r?\n/).filter(Boolean);
+  lines.shift(); // header
+  const recs = [];
+  for(const ln of lines){
+    const parts = ln.split(',');
+    if(parts.length<2) continue;
+    const when = new Date(parts[4]||parts[0]); // tenta paid_at (col E) senão timestamp
+    const nome = (parts[1]||'').toUpperCase();
+    const status = (parts[3]||'').toLowerCase();
+    if(status!=='approved') continue;
+    recs.push({nome,when});
+  }
+  // filtra a partir da terça
+  const t0 = tuesdayStart();
+  const week = recs.filter(r=> r.when >= t0).sort((a,b)=> a.when-b.when);
+
+  const tit = week.slice(0,TIT_MAX);
+  const sup = week.slice(TIT_MAX);
+  const titOl = document.getElementById('tit'); titOl.innerHTML='';
+  const supUl = document.getElementById('sup'); supUl.innerHTML='';
+  tit.forEach((r,i)=> {
+    const li=document.createElement('li');
+    li.innerHTML = `${r.nome} <span class="time">(${fmt(r.when)})</span>`;
+    titOl.appendChild(li);
+  });
+  sup.forEach(r=>{
+    const li=document.createElement('li');
+    li.innerHTML = `${r.nome} <span class="time">(${fmt(r.when)})</span>`;
+    supUl.appendChild(li);
+  });
+  const total = week.length, valor = total*PRECO;
+  document.getElementById('stats').innerHTML =
+    `<span class="pill">Pagantes: ${total}</span>`+
+    `<span class="pill">Arrecadado: R$ ${valor}</span>`+
+    `<span class="pill">Titulares: ${tit.length}/${TIT_MAX}</span>`;
+  const texto = encodeURIComponent(
+`PELADA DE SEGUNDA ⚽
+
+Jogadores:
+${tit.map((r,i)=> `${i+1}. ${r.nome} (${fmt(r.when)})`).join('\n') || '—'}
+
+SUPLENTES:
+${sup.map(r=> `${r.nome} (${fmt(r.when)})`).join('\n') || '—'}
+
+Total de pagantes: ${total}
+Valor arrecadado: R$ ${valor}`);
+  document.getElementById('wa').onclick = ()=> window.open('https://wa.me/?text='+texto,'_blank');
+}
+load();
+</script>
