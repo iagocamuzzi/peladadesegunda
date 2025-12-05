@@ -4,7 +4,6 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>ADM – Lista da Pelada</title>
-
   <style>
     :root{
       --bg:#0f1216;--card:#141922;--txt:#e7edf6;--muted:#98a7be;
@@ -24,6 +23,9 @@
     #resume{color:var(--muted);margin-top:14px;font-size:14px}
     .btn{margin-top:12px;padding:12px 16px;width:100%;border:0;border-radius:12px;background:var(--accent);color:#0a0f0d;font-weight:700;font-size:16px;cursor:pointer}
   </style>
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+  <meta http-equiv="Pragma" content="no-cache"/>
+  <meta http-equiv="Expires" content="0"/>
 </head>
 
 <body>
@@ -50,25 +52,45 @@
   </div>
 </div>
 
-<script src="config.js"></script>
+<script src="config.js?cb=1"></script>
 
-<!-- Firebase -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import {
-    getFirestore, collection, query, orderBy,
-    onSnapshot
-  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { getFirestore, collection, query, orderBy, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-  const CFG = window.PELADA_CFG;
+  const FALLBACK = {
+    FIREBASE: {
+      apiKey: "AIzaSyBHkn2f20TbpaZ0oU4nKt91O-4hxl8M780",
+      authDomain: "pelad-segunda.firebaseapp.com",
+      projectId: "pelad-segunda",
+      storageBucket: "pelad-segunda.firebasestorage.app",
+      messagingSenderId: "346189760762",
+      appId: "1:346189760762:web:f52ca3de59f5d4c750e143"
+    },
+    COLLECTION: "inscricoes",
+    TITULARES_MAX: 15,
+    PRECO: 20,
+    ADMIN_MODE: false
+  };
+
+  const G = window.PELADA_CFG || {};
+  const CFG = {
+    FIREBASE: (G.FIREBASE && G.FIREBASE.apiKey) ? G.FIREBASE : FALLBACK.FIREBASE,
+    COLLECTION: G.COLLECTION || FALLBACK.COLLECTION,
+    TITULARES_MAX: G.TITULARES_MAX ?? FALLBACK.TITULARES_MAX,
+    PRECO: G.PRECO ?? FALLBACK.PRECO,
+    ADMIN_MODE: !!G.ADMIN_MODE
+  };
+
+  console.log("CFG usado em adm.html:", CFG);
+
+  document.getElementById('maxTit').textContent = CFG.TITULARES_MAX;
+
   const app = initializeApp(CFG.FIREBASE);
   const db  = getFirestore(app);
-
   const col = collection(db, CFG.COLLECTION);
 
   let ultimoNome = sessionStorage.getItem('ultimo_nome_pelada') || null;
-
-  document.getElementById("maxTit").textContent = CFG.TITULARES_MAX;
 
   function render(players){
     const titUL = document.getElementById('tit');
@@ -115,7 +137,7 @@
   onSnapshot(q, snap=>{
     const arr = [];
     snap.forEach(doc=>{
-      const data = doc.data();
+      const data = doc.data() || {};
       arr.push({
         nome: (data.nome||"").toString().toUpperCase(),
         createdAt: data.createdAt || null
@@ -135,6 +157,5 @@
     window.open(link, "_blank");
   };
 </script>
-
 </body>
 </html>
