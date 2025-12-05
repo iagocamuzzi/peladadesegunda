@@ -19,7 +19,6 @@
     #status{margin-top:10px;font-size:14px;color:var(--muted)}
     .err{color:#ffb4bd}
   </style>
-  <!-- Evita cache do config.js durante testes -->
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
   <meta http-equiv="Pragma" content="no-cache"/>
   <meta http-equiv="Expires" content="0"/>
@@ -38,39 +37,45 @@
     </div>
   </div>
 
-  <!-- IMPORTANTE: o config.js precisa estar na MESMA PASTA -->
-  <script src="config.js"></script>
+  <!-- tenta carregar config.js; se falhar, o fallback no módulo assume -->
+  <script src="config.js?cb=1"></script>
 
   <!-- Firebase (modular v10) -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-    // 1) pega o config do window
-    const CFG = window.PELADA_CFG;
+    // Fallback automático se window.PELADA_CFG estiver ausente ou incompleto
+    const FALLBACK = {
+      FIREBASE: {
+        apiKey: "AIzaSyBHkn2f20TbpaZ0oU4nKt91O-4hxl8M780",
+        authDomain: "pelad-segunda.firebaseapp.com",
+        projectId: "pelad-segunda",
+        storageBucket: "pelad-segunda.firebasestorage.app",
+        messagingSenderId: "346189760762",
+        appId: "1:346189760762:web:f52ca3de59f5d4c750e143"
+      },
+      COLLECTION: "inscricoes",
+      TITULARES_MAX: 15,
+      PRECO: 20,
+      ADMIN_MODE: false
+    };
 
-    // 2) verificação clara (evita "app/no-options")
-    function assertFirebaseConfig(){
-      const err = (msg) => { 
-        const st=document.getElementById('status'); 
-        st.innerHTML = `<span class="err">⚠️ ${msg}</span>`;
-        throw new Error(msg);
-      };
-      if(!CFG) err("config.js não carregou (window.PELADA_CFG indefinido). Verifique o caminho/arquivo.");
-      if(!CFG.FIREBASE) err("Falta PELADA_CFG.FIREBASE no config.js.");
-      const req = ["apiKey","authDomain","projectId","appId"];
-      for(const k of req){
-        if(!CFG.FIREBASE[k]) err(`Falta FIREBASE.${k} no config.js.`);
-      }
-    }
-    assertFirebaseConfig();
+    const G = window.PELADA_CFG || {};
+    const CFG = {
+      FIREBASE: (G.FIREBASE && G.FIREBASE.apiKey) ? G.FIREBASE : FALLBACK.FIREBASE,
+      COLLECTION: G.COLLECTION || FALLBACK.COLLECTION,
+      TITULARES_MAX: G.TITULARES_MAX ?? FALLBACK.TITULARES_MAX,
+      PRECO: G.PRECO ?? FALLBACK.PRECO,
+      ADMIN_MODE: !!G.ADMIN_MODE
+    };
 
-    // 3) inicializa Firebase
+    console.log("CFG usado em inserir.html:", CFG);
+
     const app = initializeApp(CFG.FIREBASE);
     const db  = getFirestore(app);
-    const col = collection(db, CFG.COLLECTION || "inscricoes");
+    const col = collection(db, CFG.COLLECTION);
 
-    // 4) handler do botão
     const btn = document.getElementById('enviar');
     const st  = document.getElementById('status');
 
