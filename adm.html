@@ -44,7 +44,7 @@
 <div class="wrap">
   <div class="card">
     <h1>Lista da Pelada – ADM</h1>
-    <p class="muted">Os nomes aparecem imediatamente, e são confirmados assim que o CSV atualizar. Leituras parciais do Google são ignoradas para evitar “sobe-e-desce”.</p>
+    <p class="muted">Os nomes aparecem imediatamente e são confirmados assim que a planilha atualizar. Leituras instáveis do Google são filtradas para evitar “sobe-e-desce”.</p>
 
     <button id="btnWpp" class="btn">Enviar lista no WhatsApp</button>
     <div id="resume"></div>
@@ -72,22 +72,27 @@
 <script>
   // ======= CONFIG =======
   const cfg = window.PELADA_CFG || {};
-  const CSV_URL = (cfg.SHEET_CSV_URL_NOMES || cfg.SHEET_CSV_URL || "").trim();
-  const MAX_TIT = cfg.TITULARES_MAX ?? 15;
-  const PRECO = cfg.PRECO || 20;
+  // Se quiser, pode setar explicitamente no config.js:
+  // SHEET_GVIZ_CSV_URL: "https://docs.google.com/spreadsheets/d/ID/gviz/tq?tqx=out:csv&gid=GID"
+  const CSV_GVIZ = (cfg.SHEET_GVIZ_CSV_URL || "").trim();
+  const CSV_PUB  = (cfg.SHEET_CSV_URL       || "").trim();
+  const MAX_TIT  = cfg.TITULARES_MAX ?? 15;
+  const PRECO    = cfg.PRECO || 20;
 
   // ======= ESTADO =======
   let ultimoNome = (sessionStorage.getItem('ultimo_nome_pelada')||'').toUpperCase() || null;
 
-  // “snapshot estável” (o que mostramos em tela)
+  // snapshot estável
   let stableNames = [];
-  let stableCorte = null;
 
-  // polling (após inserção)
+  // estabilização
+  let lastSizeCandidate = null;
+  let sameSizeCount = 0; // leituras consecutivas com o MESMO tamanho (para quedas grandes)
+
+  // polling (após inserir)
   let pollTimer = null;
   let pollStart = null;
 
-  // ======= HELPERS =======
   const normalize = s => (s||"").toString().trim().replace(/\s+/g,' ').toUpperCase();
 
   function parseDateAny(s){
@@ -115,7 +120,6 @@
     return L.join("\n");
   }
 
-  // ======= RENDER =======
   function renderLista(nomes, highlight=null){
     const tit = document.getElementById('tit');
     const sup = document.getElementById('sup');
@@ -147,13 +151,22 @@
     document.getElementById("maxTit").textContent = MAX_TIT;
   }
 
-  // ======= CSV =======
-  async function fetchCSVText(){
-    if(!CSV_URL) throw new Error("SHEET_CSV_URL (ou *_NOMES) não definido em config.js");
-    const url = CSV_URL + (CSV_URL.includes('?')?'&':'?') + 'cacheBust=' + Date.now();
-    const resp = await fetch(url, { cache:'no-store' });
-    if(!resp.ok) throw new Error("Falha ao carregar CSV: " + resp.status);
-    return resp.text();
+  // ======= CSV loaders (gviz primeiro) =======
+  async function fetchCSV(url){
+    const u = url + (url.includes('?')?'&':'?') + 'cacheBust=' + Date.now();
+    const r = await fetch(u, {cache:'no-store'});
+    if(!r.ok) throw new Error("Falha CSV " + r.status);
+    return r.text();
+  }
+
+  async function fetchAnyCSV(){
+    if(CSV_GVIZ){
+      try{ return await fetchCSV(CSV_GVIZ); }catch(e){ /*fallback*/ }
+    }
+    if(CSV_PUB){
+      return await fetchCSV(CSV_PUB);
+    }
+    throw new Error("Nenhum URL de planilha definido em config.js");
   }
 
   function parseCSVToNames(csvText){
@@ -164,52 +177,71 @@
       return {time:r[h[0]], name:normalize(r[h[1]])};
     }).filter(r=>r.name);
 
-    // TENTATIVA 1: filtrar por data (últimos 60 dias)
-    const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-60);
+    // Filtro leve: últimos 90 dias (evita lixo antigo)
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-90);
     let filtrados = rows
       .map(r=>({...r, date:parseDateAny(r.time)}))
       .filter(r=> r.date && r.date >= cutoff)
       .sort((a,b)=> a.date - b.date);
 
-    // FALLBACK: se nada sobrou, usa TUDO da planilha (sem filtro)
-    if (filtrados.length === 0) {
+    // Se ficou vazio por datas mal formatadas, aceita tudo
+    if(filtrados.length===0){
       filtrados = rows.map(r=>({...r, date:parseDateAny(r.time)}))
-                      .sort((a,b)=> (a.date||0) - (b.date||0));
+                      .sort((a,b)=> (a.date||0)-(b.date||0));
     }
-
     return filtrados.map(r=>r.name);
   }
 
-  // ======= ESTABILIZAÇÃO =======
-  function shouldAcceptSnapshot(newNames){
-    if(stableNames.length === 0) return true;
+  // ======= Estabilização revisada =======
+  // Aceita imediatamente se veio VAZIO (você limpou a planilha).
+  // Se a nova leitura for muito menor, só aceita quando
+  // tivermos 2 leituras consecutivas com o MESMO tamanho (confirma que “assentou”).
+  function acceptOrHold(newNames){
     const oldLen = stableNames.length;
     const newLen = newNames.length;
+
+    if(newLen === 0){ // limpeza total: aceitar na hora
+      sameSizeCount = 0; lastSizeCandidate = null;
+      return true;
+    }
+    if(oldLen === 0) return true; // primeira carga
+
     const bigDrop = (oldLen - newLen) > 5 || (newLen < oldLen * 0.7);
-    return !bigDrop;
+
+    if(!bigDrop){
+      sameSizeCount = 0; lastSizeCandidate = null;
+      return true;
+    }
+
+    // queda grande → precisa confirmar duas leituras iguais seguidas
+    if(lastSizeCandidate === newLen){
+      sameSizeCount++;
+    } else {
+      lastSizeCandidate = newLen;
+      sameSizeCount = 1;
+    }
+    return sameSizeCount >= 2; // aceita na 2ª confirmação
   }
 
-  async function loadOnceAndStabilize({highlight=null, optimistic=false}={}){
+  async function loadOnce({highlight=null, optimistic=false}={}){
     try{
-      const csv = await fetchCSVText();
+      const csv = await fetchAnyCSV();
       const names = parseCSVToNames(csv);
 
-      if(shouldAcceptSnapshot(names)){
-        stableNames = names;
+      if(acceptOrHold(names)){
+        stableNames = names.slice();
         renderLista(stableNames, highlight);
         document.getElementById('log').textContent = "";
-      } else {
-        document.getElementById('log').textContent = "Ignorando leitura parcial do CSV (instável).";
+      }else{
+        document.getElementById('log').textContent =
+          "Leitura possivelmente parcial detectada. Aguardando estabilizar…";
       }
 
-      // otimista: se ainda não confirmou, injeta provisório
-      if(optimistic && ultimoNome){
-        const present = stableNames.includes(ultimoNome);
-        if(!present){
-          const withTmp = stableNames.slice();
-          withTmp.push(`${ultimoNome} (aguardando)`);
-          renderLista(withTmp, null);
-        }
+      // Otimista: injeta provisório se ainda não confirmou
+      if(optimistic && ultimoNome && !stableNames.includes(ultimoNome)){
+        const tmp = stableNames.slice();
+        tmp.push(`${ultimoNome} (aguardando)`);
+        renderLista(tmp, null);
       }
 
       return stableNames;
@@ -220,46 +252,41 @@
     }
   }
 
-  // ======= FLUXO PRINCIPAL =======
-  async function fluxoInicial(){
-    await loadOnceAndStabilize();
+  // ======= Fluxo principal =======
+  async function start(){
+    await loadOnce();
 
-    // se tem nome recém-enviado, modo otimista + polling
     if(ultimoNome){
-      await loadOnceAndStabilize({ optimistic:true });
+      await loadOnce({optimistic:true});
 
       pollStart = Date.now();
       pollTimer = setInterval(async ()=>{
-        const names = await loadOnceAndStabilize();
+        const names = await loadOnce();
         const ok = names.includes(ultimoNome);
 
         if(ok){
           clearInterval(pollTimer); pollTimer=null;
           sessionStorage.removeItem('ultimo_nome_pelada');
-          renderLista(stableNames, ultimoNome); // destaque
-          ultimoNome=null;
-
-          setTimeout(()=>{
-            document.querySelectorAll('.is-new').forEach(n=> n.classList.remove('is-new'));
-          }, 3500);
+          renderLista(stableNames, ultimoNome);
+          ultimoNome = null;
+          setTimeout(()=> document.querySelectorAll('.is-new')
+            .forEach(n=> n.classList.remove('is-new')), 3500);
         }
-
-        if(Date.now() - pollStart > 30000){
+        if(Date.now()-pollStart > 30000){
           clearInterval(pollTimer); pollTimer=null;
           document.getElementById('log').textContent =
-            "CSV não confirmou ainda. Tente novamente em instantes.";
+            "Ainda não confirmou na planilha. Tenta novamente em instantes.";
         }
       }, 3000);
     }
   }
 
-  // ======= INIT =======
   document.addEventListener("DOMContentLoaded", ()=>{
     document.getElementById("btnWpp").onclick = ()=>{
       const link="https://wa.me/?text="+encodeURIComponent(window._wppMessage||"");
       window.open(link,"_blank");
     };
-    fluxoInicial();
+    start();
   });
 </script>
 
