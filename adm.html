@@ -4,324 +4,217 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>ADM – Lista da Pelada</title>
+
   <style>
     :root{
-      --bg:#0f1216;--card:#141922;--txt:#e7edf6;--muted:#98a7be;--accent:#25D366;
-      --border:#222c3a;--ink:#0c1016;--warn:#ffd166;--ok:#06d6a0;--err:#ef476f
+      --bg:#0f1216;--card:#141922;--txt:#e7edf6;--muted:#98a7be;
+      --border:#222c3a;--ink:#0c1016;--accent:#25D366;--ok:#06d6a0;
     }
     *{box-sizing:border-box}
-    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial;background:var(--bg);color:var(--txt)}
-    .wrap{max-width:980px;margin:32px auto;padding:0 16px}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial;background:var(--bg);color:var(--txt)}
+    .wrap{max-width:900px;margin:32px auto;padding:0 16px}
     .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px;box-shadow:0 8px 30px rgba(0,0,0,.25)}
-    h1{margin:0 0 6px;font-size:24px}
-    .muted{color:var(--muted);font-size:14px;margin:0 0 14px}
+
+    h1{margin:0 0 10px;font-size:24px}
+    .muted{color:var(--muted);margin-bottom:18px;font-size:14px}
+
     .row{display:flex;gap:20px;flex-wrap:wrap}
     .col{flex:1;min-width:300px}
+
     ul{list-style:none;padding:0;margin:0;display:grid;gap:8px}
-    li{padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:var(--ink);transition:background .25s, border-color .25s}
+    li{padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:var(--ink);transition:all .20s}
+
     li.is-new{border-color:var(--ok)}
-    li.badge-pending{position:relative}
-    li.badge-pending::after{
-      content:"aguardando confirmação";
-      position:absolute;right:10px;top:10px;
-      font-size:11px;color:#bcd7c9;border:1px dashed #2f6a59;border-radius:999px;
-      padding:3px 8px;opacity:.9
+    li.pending::after{
+      content:"aguardando";position:absolute;right:12px;top:10px;
+      font-size:11px;color:#8ee3c3;border:1px dashed #31785f;
+      padding:2px 6px;border-radius:12px;
     }
-    .pill{display:inline-flex;gap:8px;align-items:center;padding:4px 10px;border-radius:999px;border:1px solid var(--border);background:var(--ink);color:var(--muted);font-size:12px}
-    .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
-    .btn{border:1px solid var(--border);background:var(--ink);color:var(--txt);padding:10px 12px;border-radius:10px;cursor:pointer}
-    .btn:hover{border-color:#3a4b64}
-    .btn.on{outline:2px solid #2f6a59}
-    .divider{height:1px;background:var(--border);margin:16px 0}
-    #log{margin-top:8px;color:var(--muted);font-size:13px;min-height:18px}
-    .stat{display:flex;gap:8px;align-items:center}
-    .stat b{color:#d2e6ff}
-    .small{font-size:12px;color:var(--muted)}
-    .loading{display:inline-flex;gap:8px;align-items:center}
-    .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);animation:b 1s infinite ease-in-out}
-    .dot:nth-child(2){animation-delay:.15s}
-    .dot:nth-child(3){animation-delay:.3s}
-    @keyframes b{0%,80%,100%{opacity:.3}40%{opacity:1}}
+
+    .btn{margin-top:12px;padding:12px 16px;width:100%;border:0;
+         border-radius:12px;background:var(--accent);color:#0a0f0d;
+         font-weight:700;font-size:16px;cursor:pointer}
+
+    #resume{color:var(--muted);margin-top:14px;font-size:14px}
+    #log{margin-top:10px;color:var(--muted);font-size:13px}
   </style>
 </head>
+
 <body>
-  <div class="wrap">
-    <div class="card">
-      <h1>Pelada de Segunda – Administração</h1>
-      <p class="muted">
-        A lista atualiza automaticamente. Após inserir um nome, ele aparece na hora com a marcação
-        <span class="small">“aguardando confirmação”</span> e some quando o CSV do Google atualizar.
-      </p>
+<div class="wrap">
+  <div class="card">
+    <h1>Lista da Pelada – ADM</h1>
+    <p class="muted">Os nomes aparecem imediatamente, e são confirmados assim que o CSV atualizar.</p>
 
-      <div class="actions">
-        <button id="btnReload" class="btn" title="Recarregar agora">Atualizar</button>
-        <button id="btnAuto" class="btn" title="Alternar auto-atualização">Auto-atualizar</button>
-        <button id="btnCopy" class="btn">Copiar texto</button>
-        <button id="btnWpp" class="btn">Abrir no WhatsApp</button>
-        <span id="resume" class="pill">—</span>
-        <span id="lastUp" class="pill">Última atualização: —</span>
-        <span id="loadState" class="pill" style="display:none">
-          <span class="loading"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>
-          Carregando...
-        </span>
+    <button id="btnWpp" class="btn">Enviar lista no WhatsApp</button>
+    <div id="resume"></div>
+
+    <div style="height:1px;background:var(--border);margin:18px 0"></div>
+
+    <div class="row">
+      <div class="col">
+        <h3>Titulares (<span id="maxTit">15</span>)</h3>
+        <ul id="tit"></ul>
       </div>
-
-      <div class="divider"></div>
-
-      <div class="row">
-        <div class="col">
-          <h3>Titulares (<span id="maxTit">15</span>)</h3>
-          <ul id="tit"></ul>
-        </div>
-        <div class="col">
-          <h3>Suplentes</h3>
-          <ul id="sup"></ul>
-        </div>
+      <div class="col">
+        <h3>Suplentes</h3>
+        <ul id="sup"></ul>
       </div>
-
-      <div id="log"></div>
     </div>
+
+    <div id="log"></div>
   </div>
+</div>
 
-  <!-- PapaParse -->
-  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-  <script src="config.js"></script>
-  <script>
-    // ================== CONFIG/STATE ==================
-    const cfg = window.PELADA_CFG || {};
-    const CSV_URL = (cfg.SHEET_CSV_URL_NOMES || cfg.SHEET_CSV_URL || "").trim();
-    const MAX_TIT = cfg.TITULARES_MAX ?? 15;
-    const PRECO = cfg.PRECO || 20;
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="config.js"></script>
 
-    // otimista (nome recém-enviado)
-    let ultimoNome = (sessionStorage.getItem('ultimo_nome_pelada')||'').toUpperCase() || null;
+<script>
+  const cfg = window.PELADA_CFG || {};
+  const CSV_URL = cfg.SHEET_CSV_URL;
+  const MAX_TIT = cfg.TITULARES_MAX ?? 15;
+  const PRECO = cfg.PRECO || 20;
 
-    // auto-refresh e polling
-    let autoOn = false;
-    let autoTimer = null;
-    let pollTimer = null;
-    let pollStart = null;
+  let ultimoNome = (sessionStorage.getItem('ultimo_nome_pelada')||'').toUpperCase() || null;
+  let pollTimer = null;
+  let pollStart = null;
 
-    // ================== HELPERS ==================
-    function nowClock(){ const d=new Date(); return d.toLocaleTimeString(); }
-    function setLoading(on){
-      const el = document.getElementById('loadState');
-      el.style.display = on ? 'inline-flex' : 'none';
+  const normalize = s => (s||"").toString().trim().toUpperCase();
+  const parseDate = s => {
+    if(!s) return null;
+    if(/^\d{2}\/\d{2}\/\d{4}/.test(s)){
+      const [d,m,yRest]=s.split('/');
+      const [y,t=""]=yRest.split(' ');
+      const [hh=0,mm=0,ss=0]=t.split(':').map(Number);
+      return new Date(+y,+m-1,+d,hh,mm,ss);
     }
-    function setLastUpdate(){ document.getElementById('lastUp').textContent = "Última atualização: " + nowClock(); }
-    function normalizeName(s){ return (s||"").toString().trim().replace(/\s+/g,' ').toUpperCase(); }
+    const t = Date.parse(s);
+    return isNaN(t)?null:new Date(t);
+  };
+  const lastTue = () => {
+    const d=new Date(); const dow=d.getDay();
+    const diff=(dow>=2?dow-2:7-(2-dow));
+    d.setDate(d.getDate()-diff); d.setHours(0,0,0,0);
+    return d;
+  };
 
-    function lastTuesdayStart(d=new Date()){
-      const dt=new Date(d.getFullYear(), d.getMonth(), d.getDate());
-      const dow = dt.getDay(); // 0=Dom, 2=Ter
-      const diff = (dow >= 2) ? dow-2 : (7 - (2-dow));
-      dt.setDate(dt.getDate() - diff);
-      dt.setHours(0,0,0,0);
-      return dt;
-    }
+  async function loadCSV(){
+    const resp = await fetch(CSV_URL + "&cacheBust="+Date.now());
+    const txt = await resp.text();
+    const parsed = Papa.parse(txt,{header:true,skipEmptyLines:true});
+    const rows = parsed.data.map(r=>{
+      const h = Object.keys(r);
+      return {time:r[h[0]], name:normalize(r[h[1]])};
+    }).filter(r=>r.name);
 
-    function parseDateAny(s){
-      if(!s) return null;
-      // formato brasileiro "DD/MM/AAAA HH:MM[:SS]"
-      if(/^\d{2}\/\d{2}\/\d{4}/.test(s)){
-        const [datePart, timePart=""] = s.split(/\s+/);
-        const [d,m,y] = datePart.split('/').map(Number);
-        let h=0,mi=0,se=0;
-        if(timePart){ const t=timePart.split(':').map(Number); h=t[0]||0; mi=t[1]||0; se=t[2]||0; }
-        return new Date(y, m-1, d, h, mi, se);
-      }
-      // ISO ou outros que o Date saiba parsear
-      const t = Date.parse(s);
-      return isNaN(t) ? null : new Date(t);
-    }
+    const corte = lastTue();
+    const filtrados = rows
+      .map(r=>({...r, date:parseDate(r.time)}))
+      .filter(r=>r.date && r.date>=corte)
+      .sort((a,b)=>a.date-b.date);
 
-    function buildMessage(listTit, listSup, total, preco){
-      const linhas = [];
-      linhas.push("PELADA DE SEGUNDA ⚽\n");
-      linhas.push("");
-      linhas.push("Jogadores:");
-      listTit.forEach((n,i)=> linhas.push((i+1)+". "+n));
-      linhas.push("");
-      linhas.push("SUPLENTES:");
-      linhas.push(listSup.length ? listSup.join(", ") : "—");
-      linhas.push("");
-      linhas.push("Total de pagantes: "+total);
-      linhas.push("Valor arrecadado: R$ "+(total*preco).toFixed(2).replace('.',','));
-      return linhas.join("\n");
-    }
+    return {nomes: filtrados.map(r=>r.name), corte};
+  }
 
-    // ================== RENDER ==================
-    function renderLista(nomes, corte, highlight){
-      const titUL = document.getElementById('tit');
-      const supUL = document.getElementById('sup');
-      titUL.innerHTML = ""; supUL.innerHTML = "";
+  function render(nomes, corte, highlight=null){
+    const tit = document.getElementById('tit');
+    const sup = document.getElementById('sup');
+    tit.innerHTML=""; sup.innerHTML="";
 
-      const titulares = nomes.slice(0, MAX_TIT);
-      const suplentes  = nomes.slice(MAX_TIT);
+    const titu = nomes.slice(0,MAX_TIT);
+    const supl = nomes.slice(MAX_TIT);
 
-      titulares.forEach((n,i)=>{
-        const li=document.createElement('li');
-        li.textContent = (i+1)+"º — "+n;
-        if(highlight && normalizeName(n) === normalizeName(highlight)) li.classList.add('is-new');
-        if(/aguardando confirmação/i.test(n)) li.classList.add('badge-pending');
-        titUL.appendChild(li);
-      });
-      suplentes.forEach((n,i)=>{
-        const li=document.createElement('li');
-        li.textContent = (i+1)+" — "+n;
-        if(highlight && normalizeName(n) === normalizeName(highlight)) li.classList.add('is-new');
-        if(/aguardando confirmação/i.test(n)) li.classList.add('badge-pending');
-        supUL.appendChild(li);
-      });
+    titu.forEach((n,i)=>{
+      const li=document.createElement('li');
+      li.textContent = (i+1)+"º — "+n;
+      if(highlight && n===highlight) li.classList.add("is-new");
+      if(n.includes("(AGUARDANDO")) li.classList.add("pending");
+      li.style.position="relative";
+      tit.appendChild(li);
+    });
+    supl.forEach((n,i)=>{
+      const li=document.createElement('li');
+      li.textContent = (i+1)+" — "+n;
+      if(highlight && n===highlight) li.classList.add("is-new");
+      if(n.includes("(AGUARDANDO")) li.classList.add("pending");
+      li.style.position="relative";
+      sup.appendChild(li);
+    });
 
-      const total = nomes.length;
-      document.getElementById('resume').innerHTML =
-        `<span class="stat"><b>Total:</b> ${total}</span>
-         <span class="stat"><b>Arrecadado:</b> R$ ${(total*PRECO).toFixed(2).replace('.',',')}</span>
-         <span class="stat"><b>Desde:</b> ${corte.toLocaleDateString()} 00:00`;
+    document.getElementById('resume').innerHTML =
+      `Total: <b>${nomes.length}</b> &nbsp;|&nbsp; 
+       Arrecadado: <b>R$ ${(nomes.length*PRECO).toFixed(2).replace('.',',')}</b>`;
 
-      window._wppMessage = buildMessage(titulares, suplentes, total, PRECO);
-      document.getElementById('maxTit').textContent = MAX_TIT;
-    }
+    window._wppMessage = buildMsg(titu, supl, nomes.length);
+    document.getElementById("maxTit").textContent = MAX_TIT;
+  }
 
-    // insere “nome provisório” se ainda não está no CSV
-    function maybeInsertProvisional(nomes){
-      if(!ultimoNome) return false;
-      const present = nomes.some(n => normalizeName(n) === normalizeName(ultimoNome));
-      if(present) return false;
+  function buildMsg(tit, sup, tot){
+    const L=[];
+    L.push("PELADA DE SEGUNDA ⚽\n");
+    L.push("Titulares:");
+    tit.forEach((n,i)=>L.push((i+1)+". "+n));
+    L.push("\nSuplentes:");
+    L.push(sup.length?sup.join(", "):"—");
+    L.push("\nTotal de jogadores: "+tot);
+    L.push("Valor arrecadado: R$ "+(tot*PRECO).toFixed(2).replace('.',','));
+    return L.join("\n");
+  }
 
-      const withTmp = nomes.slice();
-      withTmp.push(`${ultimoNome} (aguardando confirmação)`);
-      renderLista(withTmp, lastTuesdayStart(), null);
-      return true;
+  async function fluxo(){
+    const {nomes,corte}=await loadCSV();
+
+    // Se já confirmou
+    if(ultimoNome && nomes.includes(ultimoNome)){
+      render(nomes,corte,ultimoNome);
+      sessionStorage.removeItem('ultimo_nome_pelada');
+      ultimoNome=null;
+      return;
     }
 
-    // ================== DATA FLOW ==================
-    async function fetchCSV(){
-      if(!CSV_URL){
-        throw new Error("SHEET_CSV_URL (ou *_NOMES) não definido em config.js");
-      }
-      const url = CSV_URL + (CSV_URL.includes('?')?'&':'?') + 'cacheBust=' + Date.now();
-      const resp = await fetch(url, { cache:'no-store' });
-      if(!resp.ok) throw new Error("Falha ao carregar CSV: " + resp.status);
-      return resp.text();
+    // Inserir provisório
+    if(ultimoNome && !nomes.includes(ultimoNome)){
+      const tmp = nomes.slice();
+      tmp.push(`${ultimoNome} (aguardando)`);
+      render(tmp,corte,null);
+
+      startPolling();
+    } else {
+      render(nomes,corte,null);
     }
+  }
 
-    function parseRows(csvText){
-      // remove BOM se houver
-      const clean = csvText.replace(/^\uFEFF/, '');
-      const parsed = Papa.parse(clean, {header:true, skipEmptyLines:true});
-      const rows = parsed.data.map(r=>{
-        const headers = Object.keys(r);
-        const time = r[headers[0]];
-        const name = r[headers[1]];
-        return {time, name};
-      }).filter(x=> (x.name||'').toString().trim().length>0);
+  function startPolling(){
+    pollStart = Date.now();
+    pollTimer = setInterval(async ()=>{
+      const {nomes,corte} = await loadCSV();
 
-      const corte = lastTuesdayStart();
-      const filtrados = rows
-        .map(r=>({ ...r, date: parseDateAny(r.time) }))
-        .filter(r=> r.date && r.date >= corte)
-        .sort((a,b)=> a.date - b.date);
-
-      const nomes = filtrados.map(r=> normalizeName(r.name));
-      return {nomes, corte};
-    }
-
-    async function loadOnce(options={}){
-      const { highlight=null, silent=false } = options;
-      if(!silent) setLoading(true);
-      try{
-        const csv = await fetchCSV();
-        const {nomes, corte} = parseRows(csv);
-        renderLista(nomes, corte, highlight);
-        setLastUpdate();
-        document.getElementById('log').textContent = "";
-        return nomes;
-      }catch(err){
-        console.error(err);
-        document.getElementById('log').textContent = "Erro: " + err.message;
-        return [];
-      }finally{
-        if(!silent) setLoading(false);
-      }
-    }
-
-    // ================== POLLING (após inserção) ==================
-    async function refreshWithPolling(){
-      // 1) carga inicial normal
-      const nomes = await loadOnce({ highlight: null });
-
-      // 2) se o último nome ainda não confirmou, mostra provisório e inicia polling
-      const provisional = maybeInsertProvisional(nomes);
-      if(!provisional){
-        // já confirmou → limpar flag e dar destaque
-        if(ultimoNome){
-          await loadOnce({ highlight: ultimoNome, silent:true });
-          // remove destaque depois de 4s
-          setTimeout(()=>{
-            const nodes = document.querySelectorAll('.is-new');
-            nodes.forEach(n=> n.classList.remove('is-new'));
-          }, 4000);
-        }
+      if(nomes.includes(ultimoNome)){
+        clearInterval(pollTimer);
+        pollTimer=null;
         sessionStorage.removeItem('ultimo_nome_pelada');
-        ultimoNome = null;
+        render(nomes,corte,ultimoNome);
+        ultimoNome=null;
         return;
       }
 
-      // 3) polling a cada 3s por até 30s
-      pollStart = Date.now();
-      pollTimer = setInterval(async ()=>{
-        const lista = await loadOnce({ silent:true });
-        const ok = lista.some(n => normalizeName(n) === normalizeName(ultimoNome));
-        if(ok){
-          clearInterval(pollTimer); pollTimer = null;
-          sessionStorage.removeItem('ultimo_nome_pelada'); ultimoNome = null;
-          // recarrega com highlight
-          await loadOnce({ highlight: null }); // limpa "(aguardando confirmação)"
-          await loadOnce({ highlight: null, silent:true }); // dupla passada para garantir repaint
-          document.getElementById('log').textContent = "Nome confirmado ✅";
-        }else if(Date.now() - pollStart > 30000){
-          clearInterval(pollTimer); pollTimer = null;
-          document.getElementById('log').textContent = "CSV ainda não atualizou. Tente Atualizar em instantes.";
-        }
-      }, 3000);
-    }
+      if(Date.now()-pollStart > 30000){
+        clearInterval(pollTimer);
+        pollTimer=null;
+        document.getElementById('log').textContent =
+          "CSV não atualizou ainda. Tente novamente em alguns segundos.";
+      }
+    },3000);
+  }
 
-    // ================== AUTO REFRESH ==================
-    function startAuto(){
-      if(autoTimer) return;
-      autoTimer = setInterval(()=> loadOnce({ silent:true }), 15000);
-      document.getElementById('btnAuto').classList.add('on');
-      autoOn = true;
-    }
-    function stopAuto(){
-      if(autoTimer){ clearInterval(autoTimer); autoTimer=null; }
-      document.getElementById('btnAuto').classList.remove('on');
-      autoOn = false;
-    }
-    function toggleAuto(){ autoOn ? stopAuto() : startAuto(); }
+  document.addEventListener("DOMContentLoaded", ()=>{
+    document.getElementById("btnWpp").onclick = ()=>{
+      const link="https://wa.me/?text="+encodeURIComponent(window._wppMessage||"");
+      window.open(link,"_blank");
+    };
+    fluxo();
+  });
+</script>
 
-    // ================== INIT/BIND ==================
-    document.addEventListener('DOMContentLoaded', ()=>{
-      document.getElementById('btnWpp').onclick = ()=>{
-        const link = "https://wa.me/?text=" + encodeURIComponent(window._wppMessage||'');
-        window.open(link, "_blank");
-      };
-      document.getElementById('btnCopy').onclick = async ()=>{
-        try{ await navigator.clipboard.writeText(window._wppMessage||'');
-          document.getElementById('log').textContent = "Texto copiado ✅";
-        }catch(e){ document.getElementById('log').textContent = "Não foi possível copiar (permissão do navegador)."; }
-      };
-      document.getElementById('btnReload').onclick = ()=> loadOnce();
-      document.getElementById('btnAuto').onclick = toggleAuto;
-
-      // começa com uma carga e o modo polling se houver último nome
-      refreshWithPolling();
-
-      // opcional: liga auto-atualização por padrão
-      startAuto();
-    });
-  </script>
 </body>
 </html>
