@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ADM — Lista de Pagantes</title>
+  <style>
+    :root{--bg:#0f1216;--card:#141922;--txt:#e7edf6;--muted:#98a7be;--accent:#25D366}
+    *{box-sizing:border-box} body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial;background:var(--bg);color:var(--txt)}
+    .wrap{max-width:800px;margin:32px auto;padding:0 16px}
+    .card{background:var(--card);border:1px solid #222c3a;border-radius:14px;padding:20px;box-shadow:0 8px 30px rgba(0,0,0,.25)}
+    h1{margin:0 0 8px;font-size:22px}
+    .pill{display:inline-block;background:#0b1320;border:1px solid #293447;color:#cde;padding:6px 10px;border-radius:999px;font-size:12px;margin-right:8px}
+    .muted{color:var(--muted)}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .btn{cursor:pointer;background:#2b3546;color:#fff;border:0;border-radius:10px;padding:12px 16px;font-weight:600}
+    .btn-accent{background:var(--accent);color:#06230f}
+    ol,ul{margin-top:6px}
+    .time{opacity:.8;font-variant-numeric:tabular-nums}
+    .sep{height:1px;background:#263244;margin:16px 0}
+    .warn{color:#ffd665}
+  </style>
+  <script defer src="config.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Lista — Pelada de Segunda ⚽</h1>
+      <div class="row">
+        <span class="pill" id="statTotal">Pagantes: 0</span>
+        <span class="pill" id="statValor">Arrecadado: R$ 0</span>
+        <span class="pill" id="statTitulares">Titulares: 0/15</span>
+        <a class="btn" href="index.html">Voltar</a>
+      </div>
+      <p class="muted">Lista ordenada por horário (HH:MM:SS). Terça-feira zera visualmente (filtra desta semana).</p>
+      <div class="sep"></div>
+
+      <h3>Titulares</h3>
+      <ol id="tit"></ol>
+
+      <h3>Suplentes</h3>
+      <ul id="sup"></ul>
+
+      <div class="sep"></div>
+      <div class="row">
+        <button class="btn btn-accent" id="wa">Enviar lista no WhatsApp</button>
+        <span class="muted">Abre o WhatsApp com a mensagem pronta.</span>
+      </div>
+
+      <p id="fullMsg" class="muted warn" style="display:none">Limite de 15 titulares alcançado.</p>
+    </div>
+  </div>
+
+<script>
+function tuesdayStart(d=new Date()){
+  const local = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const day = local.getDay(); // 0=dom,1=seg,2=ter
+  const back = (day>=2)? day-2 : 7-(2-day);
+  local.setDate(local.getDate()-back);
+  local.setHours(0,0,0,0);
+  return local;
+}
+function fmt(h){const d=new Date(h);return [d.getHours(),d.getMinutes(),d.getSeconds()].map(x=>String(x).padStart(2,'0')).join(':')}
+async function fetchCSV(url){const r=await fetch(url,{cache:'no-store'});return await r.text();}
+function parseCSV(text){
+  const lines = text.split(/\r?\n/).filter(Boolean);
+  lines.shift();
+  const rows = [];
+  for(const ln of lines){
+    const parts = ln.split(',');
+    if(parts.length<2) continue;
+    const when = new Date(parts[4]||parts[0]);
+    const nome = (parts[1]||'').toUpperCase();
+    const status = (parts[3]||'').toLowerCase();
+    if(status!=='approved') continue;
+    rows.push({nome,when});
+  }
+  return rows;
+}
+function weekFilterSort(rows){
+  const t0 = tuesdayStart();
+  return rows.filter(r=> r.when >= t0).sort((a,b)=> a.when-b.when);
+}
+
+function buildWhats(rows, max, preco){
+  const tit = rows.slice(0,max), sup = rows.slice(max);
+  const titLines = tit.map((r,i)=> `${i+1}. ${r.nome} (${fmt(r.when)})`).join('\n') || '—';
+  const supLines = sup.map(r=> `${r.nome} (${fmt(r.when)})`).join('\n') || '—';
+  const total = rows.length, valor = total*preco;
+  return `PELADA DE SEGUNDA ⚽
+
+Jogadores:
+${titLines}
+
+SUPLENTES:
+${supLines}
+
+Total de pagantes: ${total}
+Valor arrecadado: R$ ${valor}`;
+}
+
+async function load(){
+  const cfg = window.PELADA_CFG;
+  const csv = await fetchCSV(cfg.SHEET_CSV_URL);
+  const all = parseCSV(csv);
+  const rows = weekFilterSort(all);
+  const tit = rows.slice(0,cfg.TITULARES_MAX), sup = rows.slice(cfg.TITULARES_MAX);
+
+  // stats
+  document.getElementById('statTotal').textContent = 'Pagantes: ' + rows.length;
+  document.getElementById('statValor').textContent = 'Arrecadado: R$ ' + (rows.length * cfg.PRECO);
+  document.getElementById('statTitulares').textContent = `Titulares: ${tit.length}/${cfg.TITULARES_MAX}`;
+  if(rows.length >= cfg.TITULARES_MAX) document.getElementById('fullMsg').style.display = 'block';
+
+  const titOl = document.getElementById('tit'); titOl.innerHTML='';
+  tit.forEach((r)=>{
+    const li=document.createElement('li');
+    li.innerHTML = `${r.nome} <span class="time">(${fmt(r.when)})</span>`;
+    titOl.appendChild(li);
+  });
+  const supUl = document.getElementById('sup'); supUl.innerHTML='';
+  sup.forEach((r)=>{
+    const li=document.createElement('li');
+    li.innerHTML = `${r.nome} <span class="time">(${fmt(r.when)})</span>`;
+    supUl.appendChild(li);
+  });
+
+  const text = encodeURIComponent(buildWhats(rows, cfg.TITULARES_MAX, cfg.PRECO));
+  document.getElementById('wa').onclick = ()=> window.open('https://wa.me/?text='+text,'_blank');
+}
+document.addEventListener('DOMContentLoaded', load);
+</script>
+</body>
+</html>
