@@ -27,9 +27,7 @@
 <div class="wrap">
   <div class="card">
     <h1>ADM — Lista de Pagantes</h1>
-    <p class="muted">
-      Lista atualizada em tempo real direto da planilha (1–5s).
-    </p>
+    <p class="muted">Lista atualizada em tempo real direto da planilha (1–5s).</p>
 
     <div id="resume" class="box" style="margin:12px 0"></div>
 
@@ -38,6 +36,7 @@
         <b>Titulares</b> (1–<span id="maxTit"></span>)
         <ul id="tit"></ul>
       </div>
+
       <div class="box">
         <b>Suplentes</b>
         <ul id="sup"></ul>
@@ -55,63 +54,81 @@
 </div>
 
 <script>
+
+// --------------------------------------------------------
+// Corrigido: Regex correta e função parseDatePTBR funcionando
+// --------------------------------------------------------
 function parseDatePTBR(s){
   if(!s) return null;
-  if(/\\d{2}\\/\\d{2}\\/\\d{4}/.test(s)){
-    const [d,m,yRest]=s.split('/');
-    const [y,time] = yRest.split(' ');
-    let h=0,mi=0,se=0;
-    if(time){ [h,mi,se]=time.split(':').map(Number); }
-    return new Date(Number(y), Number(m)-1, Number(d), h, mi, se||0);
+
+  // Formato BR DD/MM/YYYY HH:MM:SS
+  if(/\d{2}\/\d{2}\/\d{4}/.test(s)){
+    const [d, m, rest] = s.split("/");
+    const [y, time] = rest.split(" ");
+
+    let h=0, mi=0, se=0;
+    if(time){
+      const t = time.split(":");
+      h  = Number(t[0]) || 0;
+      mi = Number(t[1]) || 0;
+      se = Number(t[2]) || 0;
+    }
+
+    return new Date(Number(y), Number(m)-1, Number(d), h, mi, se);
   }
+
+  // fallback
   const t = Date.parse(s);
-  return isNaN(t)? null : new Date(t);
+  return isNaN(t) ? null : new Date(t);
 }
 
-// terça-feira 00:00 (corte)
-function lastTuesdayStart(d=new Date()){
-  const dt=new Date(d.getFullYear(), d.getMonth(), d.getDate());
+// --------------------------------------------------------
+// Corte: terça-feira 00:00
+// --------------------------------------------------------
+function lastTuesdayStart(now = new Date()){
+  const dt = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const dow = dt.getDay(); // dom=0 ... sab=6
-  const diff = (dow>=2)? dow-2 : (7-(2-dow));
-  dt.setDate(dt.getDate()-diff);
+  const diff = (dow >= 2) ? dow - 2 : (7 - (2 - dow));
+  dt.setDate(dt.getDate() - diff);
   dt.setHours(0,0,0,0);
   return dt;
 }
 
+// --------------------------------------------------------
+// Ler CSV publicado da planilha
+// --------------------------------------------------------
 async function loadCSV(){
   const cfg = window.PELADA_CFG;
   const url = cfg.SHEET_CSV_URL + "&_=" + Date.now(); // sem cache
 
   const resp = await fetch(url, {cache:"no-store"});
-  const txt  = await resp.text();
+  const txt = await resp.text();
 
   const parsed = Papa.parse(txt, {header:true, skipEmptyLines:true});
 
-  const rows = parsed.data.map(r=>{
+  const rows = parsed.data.map(r => {
     const keys = Object.keys(r);
     return {
       time: r[keys[0]],
-      name: (r[keys[1]]||'').toString().trim().toUpperCase()
+      name: (r[keys[1]] || "").trim().toUpperCase()
     };
-  }).filter(r=>r.name);
+  }).filter(r => r.name);
 
   const corte = lastTuesdayStart();
 
   const filtrados = rows
-    .map(r=>({...r, date:parseDatePTBR(r.time)}))
-    .filter(r=>r.date && r.date >= corte)
-    .sort((a,b)=> a.date - b.date);
+    .map(r => ({...r, date: parseDatePTBR(r.time)}))
+    .filter(r => r.date && r.date >= corte)
+    .sort((a,b) => a.date - b.date);
 
-  const nomes = filtrados.map(r=>r.name);
+  const nomes = filtrados.map(r => r.name);
 
-  // separa titulares e suplentes
   const max = cfg.TITULARES_MAX || 15;
-  const titulares = nomes.slice(0,max);
+  const titulares = nomes.slice(0, max);
   const suplentes = nomes.slice(max);
 
-  // renderizar
+  // Renderizar
   document.getElementById("maxTit").textContent = max;
-
   const titUL = document.getElementById("tit");
   const supUL = document.getElementById("sup");
   titUL.innerHTML = "";
@@ -129,35 +146,44 @@ async function loadCSV(){
     supUL.appendChild(li);
   });
 
-  // resumo
   const preco = cfg.PRECO || 20;
   const total = nomes.length;
 
   document.getElementById("resume").innerHTML =
     `<b>Total:</b> ${total} |
-     <b>Arrecadado:</b> R$ ${(total*preco).toFixed(2).replace('.',',')} |
+     <b>Arrecadado:</b> R$ ${(total * preco).toFixed(2).replace(".", ",")} |
      <b>Desde:</b> ${corte.toLocaleDateString()}`;
 
-  // preparar mensagem do WhatsApp
+  // Gerar texto pro WhatsApp
   const msg = gerarMensagem(titulares, suplentes, total, preco);
   window._msgWpp = msg;
 }
 
-function gerarMensagem(tit,sup,total,preco){
+// --------------------------------------------------------
+// Mensagem final para WhatsApp
+// --------------------------------------------------------
+function gerarMensagem(tit, sup, total, preco){
   const linhas = [];
-  linhas.push("PELADA DE SEGUNDA ⚽\\n");
-  linhas.push("Jogadores:");
-  tit.forEach((n,i)=> linhas.push(`${i+1}. ${n}`) );
+
+  linhas.push("PELADA DE SEGUNDA ⚽");
+  linhas.push("");
+  linhas.push("JOGADORES:");
+
+  tit.forEach((n,i)=> linhas.push(`${i+1}. ${n}`));
+
   linhas.push("");
   linhas.push("SUPLENTES:");
-  linhas.push(sup.length? sup.join(", ") : "—");
+  linhas.push(sup.length ? sup.map((s,i)=>`${i+1}. ${s}`).join("\n") : "—");
   linhas.push("");
   linhas.push(`Total de pagantes: ${total}`);
-  linhas.push(`Valor arrecadado: R$ ${(total*preco).toFixed(2).replace('.',',')}`);
-  return linhas.join("\\n");
+  linhas.push(`Valor arrecadado: R$ ${(total * preco).toFixed(2).replace(".", ",")}`);
+
+  return linhas.join("\n");
 }
 
-// botões
+// --------------------------------------------------------
+// Botões
+// --------------------------------------------------------
 document.addEventListener("DOMContentLoaded", ()=>{
   loadCSV();
 
