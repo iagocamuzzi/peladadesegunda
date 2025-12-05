@@ -3,207 +3,178 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>ADM – Lista da Pelada</title>
-
+  <title>ADM – Lista de Pagantes</title>
   <style>
     :root{--bg:#0f1216;--card:#141922;--txt:#e7edf6;--muted:#98a7be;--accent:#25D366}
     *{box-sizing:border-box} body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial;background:var(--bg);color:var(--txt)}
     .wrap{max-width:900px;margin:32px auto;padding:0 16px}
     .card{background:var(--card);border:1px solid #222c3a;border-radius:14px;padding:20px;box-shadow:0 8px 30px rgba(0,0,0,.25)}
-    h1{margin:0 0 10px;font-size:24px}
+    h1{margin:0 0 8px;font-size:22px}
     .muted{color:var(--muted)}
     .grid{display:grid;grid-template-columns: 1fr 1fr;gap:16px}
     .box{background:#0e131b;border:1px solid #253041;border-radius:12px;padding:12px}
     ul{margin:8px 0 0 18px}
     .btn{cursor:pointer;background:#2b3546;color:#fff;border:0;border-radius:10px;padding:12px 16px;font-weight:600}
     .sep{height:1px;background:#263244;margin:16px 0}
+    code{background:#0c1117;padding:2px 6px;border-radius:6px}
   </style>
-
   <script defer src="config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 </head>
-
 <body>
-<div class="wrap">
-  <div class="card">
-    <h1>ADM — Lista de Pagantes</h1>
-    <p class="muted">Lista atualizada em tempo real direto da planilha (1–5s).</p>
+  <div class="wrap">
+    <div class="card">
+      <h1>ADM — Lista de pagantes</h1>
+      <p class="muted">A lista é gerada a partir da planilha (CSV publicado). Corte automático a partir da <b>última terça-feira 00:00</b>.</p>
 
-    <div id="resume" class="box" style="margin:12px 0"></div>
+      <div id="resume" class="box" style="margin:12px 0"></div>
 
-    <div class="grid">
-      <div class="box">
-        <b>Titulares</b> (1–<span id="maxTit"></span>)
-        <ul id="tit"></ul>
+      <div class="grid">
+        <div class="box">
+          <b>Titulares</b> (1–<span id="maxTit"></span>)
+          <ul id="tit"></ul>
+        </div>
+        <div class="box">
+          <b>Suplentes</b>
+          <ul id="sup"></ul>
+        </div>
       </div>
 
-      <div class="box">
-        <b>Suplentes</b>
-        <ul id="sup"></ul>
-      </div>
+      <div class="sep"></div>
+      <button id="btnReload" class="btn">Atualizar</button>
+      <button id="btnWpp" class="btn" style="background:var(--accent);color:#000">Enviar no WhatsApp</button>
+      <button id="btnCopy" class="btn">Copiar texto</button>
+
+      <p class="muted" id="log"></p>
     </div>
-
-    <div class="sep"></div>
-
-    <button id="btnReload" class="btn">Atualizar</button>
-    <button id="btnWpp" class="btn" style="background:var(--accent);color:#000">WhatsApp</button>
-    <button id="btnCopy" class="btn">Copiar texto</button>
-
-    <p class="muted" id="log"></p>
   </div>
-</div>
 
 <script>
-
-// --------------------------------------------------------
-// Corrigido: Regex correta e função parseDatePTBR funcionando
-// --------------------------------------------------------
-function parseDatePTBR(s){
-  if(!s) return null;
-
-  // Formato BR DD/MM/YYYY HH:MM:SS
-  if(/\d{2}\/\d{2}\/\d{4}/.test(s)){
-    const [d, m, rest] = s.split("/");
-    const [y, time] = rest.split(" ");
-
-    let h=0, mi=0, se=0;
-    if(time){
-      const t = time.split(":");
-      h  = Number(t[0]) || 0;
-      mi = Number(t[1]) || 0;
-      se = Number(t[2]) || 0;
-    }
-
-    return new Date(Number(y), Number(m)-1, Number(d), h, mi, se);
-  }
-
-  // fallback
-  const t = Date.parse(s);
-  return isNaN(t) ? null : new Date(t);
-}
-
-// --------------------------------------------------------
-// Corte: terça-feira 00:00
-// --------------------------------------------------------
-function lastTuesdayStart(now = new Date()){
-  const dt = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const dow = dt.getDay(); // dom=0 ... sab=6
-  const diff = (dow >= 2) ? dow - 2 : (7 - (2 - dow));
+function lastTuesdayStart(d=new Date()){
+  const dt=new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  // 0=Domingo ... 2=Terça
+  const dow = dt.getDay();
+  const diff = (dow >= 2) ? dow-2 : (7 - (2-dow));
   dt.setDate(dt.getDate() - diff);
   dt.setHours(0,0,0,0);
   return dt;
 }
 
-// --------------------------------------------------------
-// Ler CSV publicado da planilha
-// --------------------------------------------------------
-async function loadCSV(){
-  const cfg = window.PELADA_CFG;
-  const url = cfg.SHEET_CSV_URL + "&_=" + Date.now(); // sem cache
-
-  const resp = await fetch(url, {cache:"no-store"});
-  const txt = await resp.text();
-
-  const parsed = Papa.parse(txt, {header:true, skipEmptyLines:true});
-
-  const rows = parsed.data.map(r => {
-    const keys = Object.keys(r);
-    return {
-      time: r[keys[0]],
-      name: (r[keys[1]] || "").trim().toUpperCase()
-    };
-  }).filter(r => r.name);
-
-  const corte = lastTuesdayStart();
-
-  const filtrados = rows
-    .map(r => ({...r, date: parseDatePTBR(r.time)}))
-    .filter(r => r.date && r.date >= corte)
-    .sort((a,b) => a.date - b.date);
-
-  const nomes = filtrados.map(r => r.name);
-
-  const max = cfg.TITULARES_MAX || 15;
-  const titulares = nomes.slice(0, max);
-  const suplentes = nomes.slice(max);
-
-  // Renderizar
-  document.getElementById("maxTit").textContent = max;
-  const titUL = document.getElementById("tit");
-  const supUL = document.getElementById("sup");
-  titUL.innerHTML = "";
-  supUL.innerHTML = "";
-
-  titulares.forEach((n,i)=>{
-    const li = document.createElement("li");
-    li.textContent = `${i+1}º — ${n}`;
-    titUL.appendChild(li);
-  });
-
-  suplentes.forEach((n,i)=>{
-    const li = document.createElement("li");
-    li.textContent = `${i+1} — ${n}`;
-    supUL.appendChild(li);
-  });
-
-  const preco = cfg.PRECO || 20;
-  const total = nomes.length;
-
-  document.getElementById("resume").innerHTML =
-    `<b>Total:</b> ${total} |
-     <b>Arrecadado:</b> R$ ${(total * preco).toFixed(2).replace(".", ",")} |
-     <b>Desde:</b> ${corte.toLocaleDateString()}`;
-
-  // Gerar texto pro WhatsApp
-  const msg = gerarMensagem(titulares, suplentes, total, preco);
-  window._msgWpp = msg;
+function parseDateAny(s){
+  // Google Forms PT-BR geralmente vem como "dd/mm/aaaa hh:mm:ss"
+  // Publicação CSV às vezes vem como ISO. Tentamos ambos.
+  if(!s) return null;
+  if(/\d{2}\/\d{2}\/\d{4}/.test(s)){
+    const [d,m,yRest]=s.split('/');
+    const [mth,yrRest]=[m, yRest];
+    const [y,time]=yrRest.split(' ');
+    let h=0,mi=0,se=0;
+    if(time){
+      [h,mi,se]=time.split(':').map(Number);
+    }
+    return new Date(Number(y), Number(mth)-1, Number(d), h, mi, se||0);
+  }
+  const t = Date.parse(s);
+  return isNaN(t) ? null : new Date(t);
 }
 
-// --------------------------------------------------------
-// Mensagem final para WhatsApp
-// --------------------------------------------------------
-function gerarMensagem(tit, sup, total, preco){
+function buildMessage(nomeTit, nomeSup, total, preco){
   const linhas = [];
-
-  linhas.push("PELADA DE SEGUNDA ⚽");
+  linhas.push("PELADA DE SEGUNDA ⚽\n");
   linhas.push("");
-  linhas.push("JOGADORES:");
-
-  tit.forEach((n,i)=> linhas.push(`${i+1}. ${n}`));
-
+  linhas.push("Jogadores:");
+  nomeTit.forEach((n,i)=>{
+    linhas.push((i+1)+". "+n);
+  });
   linhas.push("");
   linhas.push("SUPLENTES:");
-  linhas.push(sup.length ? sup.map((s,i)=>`${i+1}. ${s}`).join("\n") : "—");
+  if(nomeSup.length){
+    linhas.push(nomeSup.join(", "));
+  }else{
+    linhas.push("—");
+  }
   linhas.push("");
-  linhas.push(`Total de pagantes: ${total}`);
-  linhas.push(`Valor arrecadado: R$ ${(total * preco).toFixed(2).replace(".", ",")}`);
-
+  linhas.push("Total de pagantes: "+total);
+  linhas.push("Valor arrecadado: R$ "+(total*preco).toFixed(2).replace('.',','));
   return linhas.join("\n");
 }
 
-// --------------------------------------------------------
-// Botões
-// --------------------------------------------------------
-document.addEventListener("DOMContentLoaded", ()=>{
-  loadCSV();
+async function loadCSV(){
+  const cfg = window.PELADA_CFG;
+  document.getElementById('maxTit').textContent = cfg.TITULARES_MAX ?? 15;
 
-  document.getElementById("btnReload").onclick = loadCSV;
+  const url = (cfg.SHEET_CSV_URL || '').trim();
+  if(!url){ alert('SHEET_CSV_URL vazio em config.js'); return; }
 
-  document.getElementById("btnWpp").onclick = ()=>{
-    const link = "https://wa.me/?text=" + encodeURIComponent(window._msgWpp);
-    window.open(link,"_blank");
+  const resp = await fetch(url + '&cacheBust=' + Date.now());
+  const text = await resp.text();
+
+  const parsed = Papa.parse(text, {header:true, skipEmptyLines:true});
+  if(parsed.errors && parsed.errors.length){
+    console.warn(parsed.errors);
+  }
+
+  // Tentamos detectar as duas primeiras colunas (timestamp e nome)
+  const rows = parsed.data.map(r=>{
+    const headers = Object.keys(r);
+    const time = r[headers[0]]; // 1ª coluna
+    const name = r[headers[1]]; // 2ª coluna
+    return {time, name};
+  }).filter(x=> (x.name||'').trim().length>0);
+
+  const corte = lastTuesdayStart();
+  const filtrados = rows
+    .map(r=>({ ...r, date: parseDateAny(r.time) }))
+    .filter(r=> r.date && r.date >= corte)
+    .sort((a,b)=> a.date - b.date);
+
+  const nomesOrdenados = filtrados.map(r=> r.name.toString().trim().toUpperCase());
+
+  const titulares = nomesOrdenados.slice(0, (window.PELADA_CFG.TITULARES_MAX||15));
+  const suplentes = nomesOrdenados.slice((window.PELADA_CFG.TITULARES_MAX||15));
+
+  // Render
+  const titUL = document.getElementById('tit');
+  const supUL = document.getElementById('sup');
+  titUL.innerHTML = ""; supUL.innerHTML = "";
+
+  titulares.forEach((n,i)=>{
+    const li=document.createElement('li');
+    li.textContent = (i+1)+"º — "+n;
+    titUL.appendChild(li);
+  });
+  suplentes.forEach((n,i)=>{
+    const li=document.createElement('li');
+    li.textContent = (i+1)+" — "+n;
+    supUL.appendChild(li);
+  });
+
+  const total = nomesOrdenados.length;
+  const preco = window.PELADA_CFG.PRECO || 20;
+
+  document.getElementById('resume').innerHTML =
+    "<b>Total:</b> "+total+
+    " | <b>Arrecadado:</b> R$ "+(total*preco).toFixed(2).replace('.',',')+
+    " | <b>Desde:</b> "+corte.toLocaleDateString() + " 00:00";
+
+  // Mensagem pronta
+  const textWpp = buildMessage(titulares, suplentes, total, preco);
+  window._wppMessage = textWpp;
+  document.getElementById('btnWpp').onclick = ()=>{
+    const link = "https://wa.me/?text=" + encodeURIComponent(textWpp);
+    window.open(link, "_blank");
   };
-
-  document.getElementById("btnCopy").onclick = async ()=>{
-    try{
-      await navigator.clipboard.writeText(window._msgWpp);
-      document.getElementById("log").textContent = "Texto copiado! ✅";
+  document.getElementById('btnCopy').onclick = async ()=>{
+    try{ await navigator.clipboard.writeText(textWpp);
+      document.getElementById('log').textContent = "Texto copiado ✅";
     }catch(e){
-      document.getElementById("log").textContent = "Falha ao copiar...";
+      document.getElementById('log').textContent = "Não foi possível copiar. (segurança do navegador)";
     }
   };
-});
-</script>
+  document.getElementById('btnReload').onclick = loadCSV;
+}
 
+document.addEventListener('DOMContentLoaded', loadCSV);
+</script>
 </body>
 </html>
