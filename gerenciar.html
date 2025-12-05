@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Gerenciar – Pelada de Segunda</title>
+
+  <style>
+    :root{
+      --bg:#0f1216;--card:#141922;--txt:#e7edf6;--muted:#98a7be;
+      --border:#222c3a;--ink:#0c1016;--accent:#25D366;--ok:#06d6a0;--danger:#ef476f
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial;background:var(--bg);color:var(--txt)}
+    .wrap{max-width:980px;margin:32px auto;padding:0 16px}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px;box-shadow:0 8px 30px rgba(0,0,0,.25)}
+    h1{margin:0 0 8px;font-size:24px}
+    .muted{color:var(--muted);margin:4px 0 16px;font-size:14px}
+
+    .toolbar{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+    .btn{padding:10px 14px;border:0;border-radius:10px;cursor:pointer;font-weight:700}
+    .btn-accent{background:var(--accent);color:#0a0f0d}
+    .btn-danger{background:#3a0e17;color:#ffd1d7;border:1px solid #5a1c28}
+    .btn-ghost{background:#0c1016;border:1px solid var(--border);color:var(--txt)}
+    .right{margin-left:auto}
+
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+    @media (max-width:820px){.grid{grid-template-columns:1fr}}
+
+    .panel{border:1px solid var(--border);border-radius:12px;padding:14px;background:var(--ink)}
+    .panel h3{margin:0 0 10px;font-size:18px}
+
+    .row{display:grid;grid-template-columns:64px 1fr;gap:8px;align-items:center;margin-bottom:8px}
+    .pos{opacity:.8}
+    input.name{
+      width:100%;padding:10px 12px;border-radius:10px;border:1px solid #2a3444;
+      background:#0a0f14;color:var(--txt);font-size:15px
+    }
+    input[readonly]{opacity:.65}
+    .hint{font-size:12px;color:var(--muted);margin-top:6px}
+    #status{margin-top:10px;color:var(--muted);min-height:18px}
+  </style>
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+  <meta http-equiv="Pragma" content="no-cache"/>
+  <meta http-equiv="Expires" content="0"/>
+</head>
+
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>Gerenciar – Pelada de Segunda</h1>
+    <p class="muted">Edite os <b>titulares</b> (1º ao <span id="maxTit">15</span>) e use “Zerar lista” para apagar todos os nomes.</p>
+
+    <div class="toolbar">
+      <button id="btnAdm" class="btn btn-ghost" onclick="location.href='adm.html'">← Voltar ao ADM</button>
+      <button id="btnZerar" class="btn btn-danger right">Zerar lista</button>
+    </div>
+
+    <div class="grid">
+      <div class="panel">
+        <h3>Titulares</h3>
+        <div id="tit"></div>
+        <div class="hint">Dica: pressione <b>Enter</b> ou clique fora do campo para salvar.</div>
+      </div>
+      <div class="panel">
+        <h3>Suplentes (somente leitura)</h3>
+        <div id="sup"></div>
+        <div class="hint">Para transformar suplente em titular, você pode ajustar a ordem apagando e reinscrevendo (ou futuramente criamos um botão “promover”).</div>
+      </div>
+    </div>
+
+    <div id="status"></div>
+  </div>
+</div>
+
+<script src="config.js?cb=1"></script>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import {
+    getFirestore, collection, query, orderBy,
+    onSnapshot, updateDoc, doc, getDocs, deleteDoc, serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  // ====== CONFIG ======
+  const FALLBACK = {
+    FIREBASE: {
+      apiKey: "AIzaSyBHkn2f20TbpaZ0oU4nKt91O-4hxl8M780",
+      authDomain: "pelad-segunda.firebaseapp.com",
+      projectId: "pelad-segunda",
+      storageBucket: "pelad-segunda.firebasestorage.app",
+      messagingSenderId: "346189760762",
+      appId: "1:346189760762:web:f52ca3de59f5d4c750e143"
+    },
+    COLLECTION: "inscricoes",
+    TITULARES_MAX: 15,
+    PRECO: 20
+  };
+  const G = window.PELADA_CFG || {};
+  const CFG = {
+    FIREBASE: (G.FIREBASE && G.FIREBASE.apiKey) ? G.FIREBASE : FALLBACK.FIREBASE,
+    COLLECTION: G.COLLECTION || FALLBACK.COLLECTION,
+    TITULARES_MAX: G.TITULARES_MAX ?? FALLBACK.TITULARES_MAX
+  };
+  document.getElementById('maxTit').textContent = CFG.TITULARES_MAX;
+
+  const app = initializeApp(CFG.FIREBASE);
+  const db  = getFirestore(app);
+  const col = collection(db, CFG.COLLECTION);
+
+  const $tit = document.getElementById('tit');
+  const $sup = document.getElementById('sup');
+  const $status = document.getElementById('status');
+
+  const norm = s => (s||'').toString().trim().replace(/\s+/g,' ').toUpperCase();
+
+  function rowEditable(pos, id, value, readonly=false){
+    const wrap = document.createElement('div'); wrap.className = 'row';
+    const p = document.createElement('div'); p.className='pos'; p.textContent = pos;
+    const input = document.createElement('input');
+    input.className = 'name';
+    input.value = value;
+    input.readOnly = !!readonly;
+    input.placeholder = readonly ? '—' : 'Digite o novo nome';
+    input.oninput = ()=> input.value = input.value.toUpperCase();
+
+    async function save(){
+      const novo = norm(input.value);
+      if(!novo){ input.value=value; return; }
+      if(novo === value) return;
+      try{
+        $status.textContent = 'Salvando...';
+        await updateDoc(doc(db, CFG.COLLECTION, id), { nome: novo });
+        $status.textContent = '✅ Alterado.';
+      }catch(e){
+        console.error(e);
+        $status.textContent = 'Erro ao salvar.';
+        input.value = value; // volta ao valor antigo
+      }
+    }
+    input.addEventListener('keydown', e=>{
+      if(e.key==='Enter'){ e.preventDefault(); save(); }
+    });
+    input.addEventListener('blur', save);
+
+    wrap.appendChild(p);
+    wrap.appendChild(input);
+    return wrap;
+  }
+
+  function render(players){
+    // ordena pela hora (asc) e por nome pra estabilidade
+    const order = [...players].sort((a,b)=>{
+      const ta = a.createdAt?.toMillis?.() ?? 0;
+      const tb = b.createdAt?.toMillis?.() ?? 0;
+      if(ta!==tb) return ta - tb;
+      return a.nome.localeCompare(b.nome);
+    });
+
+    const titulares = order.slice(0, CFG.TITULARES_MAX);
+    const suplentes = order.slice(CFG.TITULARES_MAX);
+
+    $tit.innerHTML = '';
+    $sup.innerHTML = '';
+
+    titulares.forEach((p, i)=>{
+      $tit.appendChild(rowEditable(`${i+1}º`, p.id, p.nome, false));
+    });
+
+    suplentes.forEach((p, i)=>{
+      $sup.appendChild(rowEditable(`${i+1}`, p.id, p.nome, true));
+    });
+  }
+
+  // realtime
+  const q = query(col, orderBy('createdAt','asc'));
+  onSnapshot(q, snap=>{
+    const arr = [];
+    snap.forEach(d=>{
+      const data = d.data()||{};
+      arr.push({
+        id: d.id,
+        nome: norm(data.nome),
+        createdAt: data.createdAt || null
+      });
+    });
+    render(arr);
+  });
+
+  // Zerar lista
+  document.getElementById('btnZerar').addEventListener('click', async ()=>{
+    if(!confirm('Tem certeza que deseja APAGAR TODOS os nomes?')) return;
+    try{
+      $status.textContent = 'Apagando...';
+      const all = await getDocs(q);
+      const promises = [];
+      all.forEach(d=> promises.push(deleteDoc(doc(db, CFG.COLLECTION, d.id))));
+      await Promise.all(promises);
+      $status.textContent = '✅ Lista zerada.';
+    }catch(e){
+      console.error(e);
+      $status.textContent = 'Erro ao zerar lista.';
+    }
+  });
+</script>
+</body>
+</html>
