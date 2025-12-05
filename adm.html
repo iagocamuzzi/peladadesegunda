@@ -22,7 +22,7 @@
     .col{flex:1;min-width:300px}
 
     ul{list-style:none;padding:0;margin:0;display:grid;gap:8px}
-    li{padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:var(--ink);transition:all .20s}
+    li{padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:var(--ink);transition:all .20s;position:relative}
 
     li.is-new{border-color:var(--ok)}
     li.pending::after{
@@ -36,7 +36,7 @@
          font-weight:700;font-size:16px;cursor:pointer}
 
     #resume{color:var(--muted);margin-top:14px;font-size:14px}
-    #log{margin-top:10px;color:var(--muted);font-size:13px}
+    #log{margin-top:10px;color:var(--muted);font-size:13px;min-height:18px}
   </style>
 </head>
 
@@ -44,7 +44,7 @@
 <div class="wrap">
   <div class="card">
     <h1>Lista da Pelada – ADM</h1>
-    <p class="muted">Os nomes aparecem imediatamente, e são confirmados assim que o CSV atualizar.</p>
+    <p class="muted">Os nomes aparecem imediatamente, e são confirmados assim que o CSV atualizar. Leituras parciais do Google são ignoradas para evitar “sobe-e-desce”.</p>
 
     <button id="btnWpp" class="btn">Enviar lista no WhatsApp</button>
     <div id="resume"></div>
@@ -70,83 +70,50 @@
 <script src="config.js"></script>
 
 <script>
+  // ======= CONFIG =======
   const cfg = window.PELADA_CFG || {};
-  const CSV_URL = cfg.SHEET_CSV_URL;
+  const CSV_URL = (cfg.SHEET_CSV_URL_NOMES || cfg.SHEET_CSV_URL || "").trim();
   const MAX_TIT = cfg.TITULARES_MAX ?? 15;
   const PRECO = cfg.PRECO || 20;
 
+  // ======= ESTADO =======
   let ultimoNome = (sessionStorage.getItem('ultimo_nome_pelada')||'').toUpperCase() || null;
+
+  // “snapshot estável” (o que mostramos em tela)
+  let stableNames = [];
+  let stableCorte = null;
+
+  // para detectar leituras parciais/instáveis
+  let lastFetchNames = [];
+  let consecutiveGoodReads = 0; // quantas leituras “boas” seguidas recebemos
+
+  // polling (após inserir)
   let pollTimer = null;
   let pollStart = null;
 
-  const normalize = s => (s||"").toString().trim().toUpperCase();
-  const parseDate = s => {
+  // ======= HELPERS =======
+  const normalize = s => (s||"").toString().trim().replace(/\s+/g,' ').toUpperCase();
+
+  function parseDateAny(s){
     if(!s) return null;
     if(/^\d{2}\/\d{2}\/\d{4}/.test(s)){
-      const [d,m,yRest]=s.split('/');
-      const [y,t=""]=yRest.split(' ');
-      const [hh=0,mm=0,ss=0]=t.split(':').map(Number);
-      return new Date(+y,+m-1,+d,hh,mm,ss);
+      const [datePart, timePart=""] = s.split(/\s+/);
+      const [d,m,y] = datePart.split('/').map(Number);
+      let h=0,mi=0,se=0;
+      if(timePart){ const t=timePart.split(':').map(Number); h=t[0]||0; mi=t[1]||0; se=t[2]||0; }
+      return new Date(y, m-1, d, h, mi, se);
     }
     const t = Date.parse(s);
-    return isNaN(t)?null:new Date(t);
-  };
-  const lastTue = () => {
-    const d=new Date(); const dow=d.getDay();
-    const diff=(dow>=2?dow-2:7-(2-dow));
-    d.setDate(d.getDate()-diff); d.setHours(0,0,0,0);
-    return d;
-  };
-
-  async function loadCSV(){
-    const resp = await fetch(CSV_URL + "&cacheBust="+Date.now());
-    const txt = await resp.text();
-    const parsed = Papa.parse(txt,{header:true,skipEmptyLines:true});
-    const rows = parsed.data.map(r=>{
-      const h = Object.keys(r);
-      return {time:r[h[0]], name:normalize(r[h[1]])};
-    }).filter(r=>r.name);
-
-    const corte = lastTue();
-    const filtrados = rows
-      .map(r=>({...r, date:parseDate(r.time)}))
-      .filter(r=>r.date && r.date>=corte)
-      .sort((a,b)=>a.date-b.date);
-
-    return {nomes: filtrados.map(r=>r.name), corte};
+    return isNaN(t) ? null : new Date(t);
   }
 
-  function render(nomes, corte, highlight=null){
-    const tit = document.getElementById('tit');
-    const sup = document.getElementById('sup');
-    tit.innerHTML=""; sup.innerHTML="";
-
-    const titu = nomes.slice(0,MAX_TIT);
-    const supl = nomes.slice(MAX_TIT);
-
-    titu.forEach((n,i)=>{
-      const li=document.createElement('li');
-      li.textContent = (i+1)+"º — "+n;
-      if(highlight && n===highlight) li.classList.add("is-new");
-      if(n.includes("(AGUARDANDO")) li.classList.add("pending");
-      li.style.position="relative";
-      tit.appendChild(li);
-    });
-    supl.forEach((n,i)=>{
-      const li=document.createElement('li');
-      li.textContent = (i+1)+" — "+n;
-      if(highlight && n===highlight) li.classList.add("is-new");
-      if(n.includes("(AGUARDANDO")) li.classList.add("pending");
-      li.style.position="relative";
-      sup.appendChild(li);
-    });
-
-    document.getElementById('resume').innerHTML =
-      `Total: <b>${nomes.length}</b> &nbsp;|&nbsp; 
-       Arrecadado: <b>R$ ${(nomes.length*PRECO).toFixed(2).replace('.',',')}</b>`;
-
-    window._wppMessage = buildMsg(titu, supl, nomes.length);
-    document.getElementById("maxTit").textContent = MAX_TIT;
+  function lastTuesdayStart(d=new Date()){
+    const dt=new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const dow = dt.getDay(); // 0=Dom, 2=Ter
+    const diff = (dow >= 2) ? dow-2 : (7 - (2-dow));
+    dt.setDate(dt.getDate() - diff);
+    dt.setHours(0,0,0,0);
+    return dt;
   }
 
   function buildMsg(tit, sup, tot){
@@ -161,60 +128,129 @@
     return L.join("\n");
   }
 
-  async function fluxo(){
-    const {nomes,corte}=await loadCSV();
+  // ======= RENDER =======
+  function renderLista(nomes, corte, highlight=null){
+    const tit = document.getElementById('tit');
+    const sup = document.getElementById('sup');
+    tit.innerHTML=""; sup.innerHTML="";
 
-    // Se já confirmou
-    if(ultimoNome && nomes.includes(ultimoNome)){
-      render(nomes,corte,ultimoNome);
-      sessionStorage.removeItem('ultimo_nome_pelada');
-      ultimoNome=null;
-      return;
-    }
+    const titu = nomes.slice(0,MAX_TIT);
+    const supl = nomes.slice(MAX_TIT);
 
-    // Inserir provisório
-    if(ultimoNome && !nomes.includes(ultimoNome)){
-      const tmp = nomes.slice();
-      tmp.push(`${ultimoNome} (aguardando)`);
-      render(tmp,corte,null);
+    titu.forEach((n,i)=>{
+      const li=document.createElement('li');
+      li.textContent = (i+1)+"º — "+n;
+      if(highlight && normalize(n)===normalize(highlight)) li.classList.add("is-new");
+      if(/\(AGUARDANDO\)/i.test(n)) li.classList.add("pending");
+      tit.appendChild(li);
+    });
+    supl.forEach((n,i)=>{
+      const li=document.createElement('li');
+      li.textContent = (i+1)+" — "+n;
+      if(highlight && normalize(n)===normalize(highlight)) li.classList.add("is-new");
+      if(/\(AGUARDANDO\)/i.test(n)) li.classList.add("pending");
+      sup.appendChild(li);
+    });
 
-      startPolling();
-    } else {
-      render(nomes,corte,null);
+    document.getElementById('resume').innerHTML =
+      `Total: <b>${nomes.length}</b> &nbsp;|&nbsp; 
+       Arrecadado: <b>R$ ${(nomes.length*PRECO).toFixed(2).replace('.',',')}</b>`;
+
+    window._wppMessage = buildMsg(titu, supl, nomes.length);
+    document.getElementById("maxTit").textContent = MAX_TIT;
+  }
+
+  // ======= CSV =======
+  async function fetchCSVText(){
+    if(!CSV_URL) throw new Error("SHEET_CSV_URL (ou *_NOMES) não definido em config.js");
+    const url = CSV_URL + (CSV_URL.includes('?')?'&':'?') + 'cacheBust=' + Date.now();
+    const resp = await fetch(url, { cache:'no-store' });
+    if(!resp.ok) throw new Error("Falha ao carregar CSV: " + resp.status);
+    return resp.text();
+  }
+
+  function parseCSVToNames(csvText){
+    const clean = csvText.replace(/^\uFEFF/, '');
+    const parsed = Papa.parse(clean, {header:true, skipEmptyLines:true});
+    const rows = parsed.data.map(r=>{
+      const h = Object.keys(r);
+      return {time:r[h[0]], name:normalize(r[h[1]])};
+    }).filter(r=>r.name);
+
+    const corte = lastTuesdayStart();
+    const filtrados = rows
+      .map(r=>({...r, date:parseDateAny(r.time)}))
+      .filter(r=> r.date && r.date>=corte)
+      .sort((a,b)=> a.date - b.date);
+
+    return { names: filtrados.map(r=>r.name), corte };
+  }
+
+  // ======= ACEITAÇÃO / ESTABILIZAÇÃO =======
+  // Regras:
+  // - Se nova leitura for MUITO menor que a estável (queda > 30% OU > 5 nomes), consideramos "parcial" e ignoramos.
+  // - Precisamos de 1 leitura “boa” para atualizar a estável (ou manter se igual/maior).
+  function shouldAcceptSnapshot(newNames){
+    if(stableNames.length === 0) return true; // primeira render
+    const oldLen = stableNames.length;
+    const newLen = newNames.length;
+
+    const bigDrop = (oldLen - newLen) > 5 || (newLen < oldLen * 0.7);
+    return !bigDrop;
+  }
+
+  async function loadOnceAndStabilize({highlight=null, optimistic=false}={}){
+    try{
+      const csv = await fetchCSVText();
+      const {names, corte} = parseCSVToNames(csv);
+      lastFetchNames = names;
+
+      // Se for leitura “boa”, atualiza estável
+      if(shouldAcceptSnapshot(names)){
+        stableNames = names;
+        stableCorte = corte;
+        consecutiveGoodReads++;
+        renderLista(stableNames, stableCorte, highlight);
+        document.getElementById('log').textContent = "";
+      } else {
+        // Ignora leitura parcial: mantém a tela como está
+        consecutiveGoodReads = 0;
+        document.getElementById('log').textContent = "Ignorando leitura parcial do CSV (instável).";
+      }
+
+      // Se modo otimista (acabou de inserir) e não confirmou, injeta provisório
+      if(optimistic && ultimoNome){
+        const present = stableNames.includes(ultimoNome);
+        if(!present){
+          const withTmp = stableNames.slice();
+          withTmp.push(`${ultimoNome} (aguardando)`);
+          renderLista(withTmp, stableCorte || lastTuesdayStart(), null);
+        }
+      }
+
+      return stableNames;
+    }catch(err){
+      console.error(err);
+      document.getElementById('log').textContent = "Erro: " + err.message;
+      return stableNames;
     }
   }
 
-  function startPolling(){
-    pollStart = Date.now();
-    pollTimer = setInterval(async ()=>{
-      const {nomes,corte} = await loadCSV();
+  // ======= FLUXO PRINCIPAL =======
+  async function fluxoInicial(){
+    // 1) carrega uma vez
+    await loadOnceAndStabilize();
 
-      if(nomes.includes(ultimoNome)){
-        clearInterval(pollTimer);
-        pollTimer=null;
-        sessionStorage.removeItem('ultimo_nome_pelada');
-        render(nomes,corte,ultimoNome);
-        ultimoNome=null;
-        return;
-      }
+    // 2) se tem nome recém-enviado, modo otimista + polling
+    if(ultimoNome){
+      await loadOnceAndStabilize({ optimistic:true });
 
-      if(Date.now()-pollStart > 30000){
-        clearInterval(pollTimer);
-        pollTimer=null;
-        document.getElementById('log').textContent =
-          "CSV não atualizou ainda. Tente novamente em alguns segundos.";
-      }
-    },3000);
-  }
+      pollStart = Date.now();
+      pollTimer = setInterval(async ()=>{
+        const names = await loadOnceAndStabilize();
+        const ok = names.includes(ultimoNome);
 
-  document.addEventListener("DOMContentLoaded", ()=>{
-    document.getElementById("btnWpp").onclick = ()=>{
-      const link="https://wa.me/?text="+encodeURIComponent(window._wppMessage||"");
-      window.open(link,"_blank");
-    };
-    fluxo();
-  });
-</script>
-
-</body>
-</html>
+        if(ok){
+          clearInterval(pollTimer); pollTimer=null;
+          sessionStorage.removeItem('ultimo_nome_pelada');
+          renderLista(stableNames, stableCorte, ultimoNome); // destaque
