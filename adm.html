@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>ADM – Lista da Pelada</title>
+
   <style>
     :root{
       --bg:#0f1216;--card:#141922;--txt:#e7edf6;--muted:#98a7be;
@@ -18,22 +19,18 @@
     .row{display:flex;gap:20px;flex-wrap:wrap}
     .col{flex:1;min-width:300px}
     ul{list-style:none;padding:0;margin:0;display:grid;gap:8px}
-    li{padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:var(--ink);transition:all .20s;position:relative}
+    li{padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:var(--ink);display:flex;justify-content:space-between;align-items:center}
     li.is-new{border-color:var(--ok)}
-    li.pending::after{
-      content:"aguardando";position:absolute;right:12px;top:10px;
-      font-size:11px;color:#8ee3c3;border:1px dashed #31785f;padding:2px 6px;border-radius:12px;
-    }
-    .btn{margin-top:12px;padding:12px 16px;width:100%;border:0;border-radius:12px;background:var(--accent);color:#0a0f0d;font-weight:700;font-size:16px;cursor:pointer}
     #resume{color:var(--muted);margin-top:14px;font-size:14px}
-    #log{margin-top:10px;color:var(--muted);font-size:13px;min-height:18px}
+    .btn{margin-top:12px;padding:12px 16px;width:100%;border:0;border-radius:12px;background:var(--accent);color:#0a0f0d;font-weight:700;font-size:16px;cursor:pointer}
   </style>
 </head>
+
 <body>
 <div class="wrap">
   <div class="card">
     <h1>Lista da Pelada – ADM</h1>
-    <p class="muted">Mudanças só entram na tela após 2 leituras idênticas seguidas (anti-oscilação). O último nome aparece na hora como “(aguardando)” até confirmar na planilha.</p>
+    <p class="muted">Atualização 100% em tempo real via Firebase.</p>
 
     <button id="btnWpp" class="btn">Enviar lista no WhatsApp</button>
     <div id="resume"></div>
@@ -50,222 +47,94 @@
         <ul id="sup"></ul>
       </div>
     </div>
-
-    <div id="log"></div>
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 <script src="config.js"></script>
-<script>
-  // ======= CONFIG =======
-  const cfg = window.PELADA_CFG || {};
-  // Use um ÚNICO endpoint: gviz se existir, senão o publicado
-  const SHEET_URL = (cfg.SHEET_GVIZ_CSV_URL || cfg.SHEET_CSV_URL || "").trim();
-  const MAX_TIT = cfg.TITULARES_MAX ?? 15;
-  const PRECO   = cfg.PRECO || 20;
 
-  if(!SHEET_URL){
-    console.error("Defina SHEET_GVIZ_CSV_URL ou SHEET_CSV_URL no config.js");
-  }
+<!-- Firebase -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import {
+    getFirestore, collection, query, orderBy,
+    onSnapshot
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-  // ======= ESTADO =======
-  let ultimoNome = (sessionStorage.getItem('ultimo_nome_pelada')||'').toUpperCase() || null;
+  const CFG = window.PELADA_CFG;
+  const app = initializeApp(CFG.FIREBASE);
+  const db  = getFirestore(app);
 
-  // snapshot estável aceito e seu hash
-  let stable = [];
-  let stableHash = "";
+  const col = collection(db, CFG.COLLECTION);
 
-  // candidato a próxima versão (precisa repetir igual)
-  const CONSEC_REQUIRED = 2;
-  let candidateHash = "";
-  let candidateCount = 0;
-  let candidateArray = [];
+  let ultimoNome = sessionStorage.getItem('ultimo_nome_pelada') || null;
 
-  // polling (após inserir)
-  let pollTimer = null;
-  let pollStart = null;
+  document.getElementById("maxTit").textContent = CFG.TITULARES_MAX;
 
-  // ======= HELPERS =======
-  const norm = s => (s||"").toString().trim().replace(/\s+/g,' ').toUpperCase();
-  const hashArr = arr => JSON.stringify(arr);
+  function render(players){
+    const titUL = document.getElementById('tit');
+    const supUL = document.getElementById('sup');
+    titUL.innerHTML=""; supUL.innerHTML="";
 
-  function parseDateAny(s){
-    if(!s) return null;
-    if(/^\d{2}\/\d{2}\/\d{4}/.test(s)){
-      const [datePart, timePart=""] = s.split(/\s+/);
-      const [d,m,y] = datePart.split('/').map(Number);
-      let h=0,mi=0,se=0; if(timePart){ const t=timePart.split(':').map(Number); h=t[0]||0; mi=t[1]||0; se=t[2]||0; }
-      return new Date(y, m-1, d, h, mi, se);
-    }
-    const t = Date.parse(s); return isNaN(t)?null:new Date(t);
-  }
-
-  function buildMsg(tit, sup, tot){
-    const L=[];
-    L.push("PELADA DE SEGUNDA ⚽\n");
-    L.push("Titulares:"); tit.forEach((n,i)=>L.push((i+1)+". "+n));
-    L.push("\nSuplentes:"); L.push(sup.length?sup.join(", "):"—");
-    L.push("\nTotal de jogadores: "+tot);
-    L.push("Valor arrecadado: R$ "+(tot*PRECO).toFixed(2).replace('.',','));
-    return L.join("\n");
-  }
-
-  function render(arr, highlight=null){
-    const tit = document.getElementById('tit');
-    const sup = document.getElementById('sup');
-    tit.innerHTML=""; sup.innerHTML="";
-
-    const titulares = arr.slice(0,MAX_TIT);
-    const suplentes  = arr.slice(MAX_TIT);
-
-    titulares.forEach((n,i)=>{
-      const li=document.createElement('li');
-      li.textContent = (i+1)+"º — "+n;
-      if(highlight && norm(n)===norm(highlight)) li.classList.add("is-new");
-      if(/\(AGUARDANDO\)/i.test(n)) li.classList.add("pending");
-      tit.appendChild(li);
-    });
-    suplentes.forEach((n,i)=>{
-      const li=document.createElement('li');
-      li.textContent = (i+1)+" — "+n;
-      if(highlight && norm(n)===norm(highlight)) li.classList.add("is-new");
-      if(/\(AGUARDANDO\)/i.test(n)) li.classList.add("pending");
-      sup.appendChild(li);
+    const ordenado = players.sort((a,b)=>{
+      const ta = a.createdAt?.toMillis?.() || 0;
+      const tb = b.createdAt?.toMillis?.() || 0;
+      if(ta !== tb) return ta - tb;
+      return a.nome.localeCompare(b.nome);
     });
 
+    const titulares = ordenado.slice(0, CFG.TITULARES_MAX);
+    const suplentes = ordenado.slice(CFG.TITULARES_MAX);
+
+    titulares.forEach((p,i)=>{
+      const li = document.createElement("li");
+      li.textContent = `${i+1}º — ${p.nome}`;
+      if(ultimoNome && p.nome === ultimoNome) li.classList.add('is-new');
+      titUL.appendChild(li);
+    });
+
+    suplentes.forEach((p,i)=>{
+      const li = document.createElement("li");
+      li.textContent = `${i+1} — ${p.nome}`;
+      if(ultimoNome && p.nome === ultimoNome) li.classList.add('is-new');
+      supUL.appendChild(li);
+    });
+
+    const total = ordenado.length;
     document.getElementById('resume').innerHTML =
-      `Total: <b>${arr.length}</b> &nbsp;|&nbsp; Arrecadado: <b>R$ ${(arr.length*PRECO).toFixed(2).replace('.',',')}</b>`;
+      `Total: <b>${total}</b> — Arrecadado: R$ ${(total*CFG.PRECO).toFixed(2).replace('.',',')}`;
 
-    window._wppMessage = buildMsg(titulares, suplentes, arr.length);
-    document.getElementById("maxTit").textContent = MAX_TIT;
+    window._wppMessage =
+      "PELADA DE SEGUNDA ⚽\n\nTitulares:\n" +
+      titulares.map((p,i)=>`${i+1}. ${p.nome}`).join("\n") +
+      "\n\nSuplentes:\n" +
+      (suplentes.length ? suplentes.map(p=>p.nome).join(", ") : "—") +
+      `\n\nTotal: ${total}\nValor arrecadado: R$ ${(total*CFG.PRECO).toFixed(2).replace('.',',')}`;
   }
 
-  // ======= CSV =======
-  async function fetchCSV(){
-    const url = SHEET_URL + (SHEET_URL.includes('?')?'&':'?') + 'cacheBust=' + Date.now();
-    const resp = await fetch(url, { cache:'no-store' });
-    if(!resp.ok) throw new Error("Falha ao carregar CSV: " + resp.status);
-    return resp.text();
-  }
-
-  function parseCSVToArray(csvText){
-    const clean = csvText.replace(/^\uFEFF/, '');
-    const parsed = Papa.parse(clean, {header:true, skipEmptyLines:true});
-    const rows = parsed.data.map(r=>{
-      const h = Object.keys(r); // 1ª col = data/hora, 2ª col = nome
-      return {time:r[h[0]], name: norm(r[h[1]])};
-    }).filter(r=>r.name);
-
-    // Ordena por data (quando existir), depois por nome para estabilidade
-    const enriched = rows.map(r=> ({...r, date: parseDateAny(r.time)}));
-    enriched.sort((a,b)=>{
-      const ta = a.date ? a.date.getTime() : 0;
-      const tb = b.date ? b.date.getTime() : 0;
-      if(ta!==tb) return ta - tb;
-      return a.name.localeCompare(b.name);
+  const q = query(col, orderBy("createdAt","asc"));
+  onSnapshot(q, snap=>{
+    const arr = [];
+    snap.forEach(doc=>{
+      const data = doc.data();
+      arr.push({
+        nome: (data.nome||"").toString().toUpperCase(),
+        createdAt: data.createdAt || null
+      });
     });
 
-    return enriched.map(r=> r.name);
-  }
+    render(arr);
 
-  // ======= ACEITAÇÃO: precisa repetir igual 2x =======
-  function consider(arr){
-    const h = hashArr(arr);
-    if(h === stableHash){
-      // nada mudou
-      candidateHash = ""; candidateCount = 0; candidateArray = [];
-      return false;
+    if(ultimoNome && arr.some(p=>p.nome===ultimoNome)){
+      sessionStorage.removeItem('ultimo_nome_pelada');
+      ultimoNome = null;
     }
-    if(h === candidateHash){
-      candidateCount += 1;
-    }else{
-      candidateHash = h;
-      candidateArray = arr.slice();
-      candidateCount = 1;
-    }
-    if(candidateCount >= CONSEC_REQUIRED){
-      // aceitar mudança
-      stable = candidateArray.slice();
-      stableHash = candidateHash;
-      candidateHash = ""; candidateCount = 0; candidateArray = [];
-      return true;
-    }
-    return false;
-  }
-
-  async function loadOnce({optimistic=false, highlight=null}={}){
-    try{
-      const csv = await fetchCSV();
-      const list = parseCSVToArray(csv);
-
-      const changed = consider(list);
-      if(changed){
-        render(stable, highlight);
-        document.getElementById('log').textContent = "";
-      }else{
-        // mantém a tela como está; opcionalmente mostre status
-        document.getElementById('log').textContent = "";
-      }
-
-      // Otimista: só na primeira passagem do fluxo de inserção
-      if(optimistic && ultimoNome && !stable.includes(ultimoNome)){
-        const tmp = stable.slice();
-        tmp.push(`${ultimoNome} (aguardando)`);
-        render(tmp, null);
-      }
-
-      return stable.slice();
-    }catch(e){
-      console.error(e);
-      document.getElementById('log').textContent = "Erro: " + e.message;
-      return stable.slice();
-    }
-  }
-
-  // ======= FLUXO =======
-  async function start(){
-    // primeira carga aceita qualquer estado como estável
-    try{
-      const csv = await fetchCSV();
-      const first = parseCSVToArray(csv);
-      stable = first.slice(); stableHash = hashArr(stable);
-      render(stable, null);
-    }catch(e){
-      document.getElementById('log').textContent = "Erro: " + e.message;
-    }
-
-    // se acabou de inserir, mostra otimista e entra em polling
-    if(ultimoNome){
-      await loadOnce({optimistic:true});
-      let tries = 0;
-      pollStart = Date.now();
-      pollTimer = setInterval(async ()=>{
-        tries++;
-        const cur = await loadOnce({});
-        const ok = cur.includes(ultimoNome);
-        if(ok){
-          clearInterval(pollTimer); pollTimer=null;
-          sessionStorage.removeItem('ultimo_nome_pelada');
-          render(stable, ultimoNome);
-          ultimoNome = null;
-          setTimeout(()=> document.querySelectorAll('.is-new').forEach(n=> n.classList.remove('is-new')), 3500);
-        }
-        if(Date.now() - pollStart > 30000){
-          clearInterval(pollTimer); pollTimer=null;
-          document.getElementById('log').textContent = "Ainda confirmando na planilha…";
-        }
-      }, 3000);
-    }
-  }
-
-  document.addEventListener('DOMContentLoaded', ()=>{
-    document.getElementById("btnWpp").onclick = ()=>{
-      const link="https://wa.me/?text="+encodeURIComponent(window._wppMessage||"");
-      window.open(link,"_blank");
-    };
-    start();
   });
+
+  document.getElementById("btnWpp").onclick = ()=>{
+    const link = "https://wa.me/?text=" + encodeURIComponent(window._wppMessage||"");
+    window.open(link, "_blank");
+  };
 </script>
+
 </body>
 </html>
