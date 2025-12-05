@@ -83,11 +83,7 @@
   let stableNames = [];
   let stableCorte = null;
 
-  // para detectar leituras parciais/instáveis
-  let lastFetchNames = [];
-  let consecutiveGoodReads = 0; // quantas leituras “boas” seguidas recebemos
-
-  // polling (após inserir)
+  // polling (após inserção)
   let pollTimer = null;
   let pollStart = null;
 
@@ -107,15 +103,6 @@
     return isNaN(t) ? null : new Date(t);
   }
 
-  function lastTuesdayStart(d=new Date()){
-    const dt=new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    const dow = dt.getDay(); // 0=Dom, 2=Ter
-    const diff = (dow >= 2) ? dow-2 : (7 - (2-dow));
-    dt.setDate(dt.getDate() - diff);
-    dt.setHours(0,0,0,0);
-    return dt;
-  }
-
   function buildMsg(tit, sup, tot){
     const L=[];
     L.push("PELADA DE SEGUNDA ⚽\n");
@@ -129,7 +116,7 @@
   }
 
   // ======= RENDER =======
-  function renderLista(nomes, corte, highlight=null){
+  function renderLista(nomes, highlight=null){
     const tit = document.getElementById('tit');
     const sup = document.getElementById('sup');
     tit.innerHTML=""; sup.innerHTML="";
@@ -153,7 +140,7 @@
     });
 
     document.getElementById('resume').innerHTML =
-      `Total: <b>${nomes.length}</b> &nbsp;|&nbsp; 
+      `Total: <b>${nomes.length}</b> &nbsp;|&nbsp;
        Arrecadado: <b>R$ ${(nomes.length*PRECO).toFixed(2).replace('.',',')}</b>`;
 
     window._wppMessage = buildMsg(titu, supl, nomes.length);
@@ -177,24 +164,27 @@
       return {time:r[h[0]], name:normalize(r[h[1]])};
     }).filter(r=>r.name);
 
-    const corte = lastTuesdayStart();
-    const filtrados = rows
+    // TENTATIVA 1: filtrar por data (últimos 60 dias)
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-60);
+    let filtrados = rows
       .map(r=>({...r, date:parseDateAny(r.time)}))
-      .filter(r=> r.date && r.date>=corte)
+      .filter(r=> r.date && r.date >= cutoff)
       .sort((a,b)=> a.date - b.date);
 
-    return { names: filtrados.map(r=>r.name), corte };
+    // FALLBACK: se nada sobrou, usa TUDO da planilha (sem filtro)
+    if (filtrados.length === 0) {
+      filtrados = rows.map(r=>({...r, date:parseDateAny(r.time)}))
+                      .sort((a,b)=> (a.date||0) - (b.date||0));
+    }
+
+    return filtrados.map(r=>r.name);
   }
 
-  // ======= ACEITAÇÃO / ESTABILIZAÇÃO =======
-  // Regras:
-  // - Se nova leitura for MUITO menor que a estável (queda > 30% OU > 5 nomes), consideramos "parcial" e ignoramos.
-  // - Precisamos de 1 leitura “boa” para atualizar a estável (ou manter se igual/maior).
+  // ======= ESTABILIZAÇÃO =======
   function shouldAcceptSnapshot(newNames){
-    if(stableNames.length === 0) return true; // primeira render
+    if(stableNames.length === 0) return true;
     const oldLen = stableNames.length;
     const newLen = newNames.length;
-
     const bigDrop = (oldLen - newLen) > 5 || (newLen < oldLen * 0.7);
     return !bigDrop;
   }
@@ -202,29 +192,23 @@
   async function loadOnceAndStabilize({highlight=null, optimistic=false}={}){
     try{
       const csv = await fetchCSVText();
-      const {names, corte} = parseCSVToNames(csv);
-      lastFetchNames = names;
+      const names = parseCSVToNames(csv);
 
-      // Se for leitura “boa”, atualiza estável
       if(shouldAcceptSnapshot(names)){
         stableNames = names;
-        stableCorte = corte;
-        consecutiveGoodReads++;
-        renderLista(stableNames, stableCorte, highlight);
+        renderLista(stableNames, highlight);
         document.getElementById('log').textContent = "";
       } else {
-        // Ignora leitura parcial: mantém a tela como está
-        consecutiveGoodReads = 0;
         document.getElementById('log').textContent = "Ignorando leitura parcial do CSV (instável).";
       }
 
-      // Se modo otimista (acabou de inserir) e não confirmou, injeta provisório
+      // otimista: se ainda não confirmou, injeta provisório
       if(optimistic && ultimoNome){
         const present = stableNames.includes(ultimoNome);
         if(!present){
           const withTmp = stableNames.slice();
           withTmp.push(`${ultimoNome} (aguardando)`);
-          renderLista(withTmp, stableCorte || lastTuesdayStart(), null);
+          renderLista(withTmp, null);
         }
       }
 
@@ -238,10 +222,9 @@
 
   // ======= FLUXO PRINCIPAL =======
   async function fluxoInicial(){
-    // 1) carrega uma vez
     await loadOnceAndStabilize();
 
-    // 2) se tem nome recém-enviado, modo otimista + polling
+    // se tem nome recém-enviado, modo otimista + polling
     if(ultimoNome){
       await loadOnceAndStabilize({ optimistic:true });
 
@@ -253,4 +236,32 @@
         if(ok){
           clearInterval(pollTimer); pollTimer=null;
           sessionStorage.removeItem('ultimo_nome_pelada');
-          renderLista(stableNames, stableCorte, ultimoNome); // destaque
+          renderLista(stableNames, ultimoNome); // destaque
+          ultimoNome=null;
+
+          setTimeout(()=>{
+            document.querySelectorAll('.is-new').forEach(n=> n.classList.remove('is-new'));
+          }, 3500);
+        }
+
+        if(Date.now() - pollStart > 30000){
+          clearInterval(pollTimer); pollTimer=null;
+          document.getElementById('log').textContent =
+            "CSV não confirmou ainda. Tente novamente em instantes.";
+        }
+      }, 3000);
+    }
+  }
+
+  // ======= INIT =======
+  document.addEventListener("DOMContentLoaded", ()=>{
+    document.getElementById("btnWpp").onclick = ()=>{
+      const link="https://wa.me/?text="+encodeURIComponent(window._wppMessage||"");
+      window.open(link,"_blank");
+    };
+    fluxoInicial();
+  });
+</script>
+
+</body>
+</html>
