@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Pelada de Segunda — Pagar</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <style>
+    :root{--bg:#0f1216;--card:#141922;--txt:#e7edf6;--muted:#98a7be;--accent:#25D366}
+    *{box-sizing:border-box} body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial;background:var(--bg);color:var(--txt)}
+    .wrap{max-width:720px;margin:32px auto;padding:0 16px}
+    .card{background:var(--card);border:1px solid #222c3a;border-radius:14px;padding:20px;box-shadow:0 8px 30px rgba(0,0,0,.25)}
+    h1{margin:0 0 8px;font-size:24px}
+    p{margin:8px 0;color:var(--muted)}
+    .pill{display:inline-block;background:#0b1320;border:1px solid #293447;color:#cde;padding:6px 10px;border-radius:999px;font-size:12px;margin-right:8px}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .hint{font-size:13px;color:#a9bad6}
+    .disabled{opacity:.5;pointer-events:none}
+    .center{display:flex;justify-content:center;margin:18px 0}
+    .btn{cursor:pointer;background:#2b3546;color:#fff;border:0;border-radius:10px;padding:12px 16px;font-weight:600}
+    .btn-accent{background:var(--accent);color:#06230f}
+    .warn{color:#ffd665}
+    .spacer{height:16px}
+    .mp-container{margin-top:10px}
+  </style>
+  <script defer src="config.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Pelada de Segunda ⚽</h1>
+      <div class="row">
+        <span class="pill" id="statTotal">Pagantes: 0</span>
+        <span class="pill" id="statValor">Arrecadado: R$ 0</span>
+        <span class="pill" id="statTitulares">Titulares: 0/15</span>
+      </div>
+      <p class="hint">Pague o PIX e será redirecionado para informar seu nome na lista.<br>Se a lista já tiver 15 titulares, o pagamento fica desativado e você entra como suplente mais tarde.</p>
+      <div class="spacer"></div>
+      <div id="payArea" class="mp-container">
+        <!-- Botão do Mercado Pago (Checkout Pro) -->
+        <script src="https://www.mercadopago.com.br/integrations/v1/web-payment-checkout.js"
+          data-preference-id="71896558-d60bbf91-0a06-4a04-bdd9-383868794d94" data-source="button">
+        </script>
+      </div>
+
+      <div class="center">
+        <a class="btn" href="inserir.html">Já paguei — ir para inserir meu nome</a>
+        <a class="btn btn-accent" href="adm.html">Ver lista (ADM)</a>
+      </div>
+
+      <p id="fullMsg" class="hint warn" style="display:none">Limite de 15 titulares atingido. O botão de pagamento foi desativado.</p>
+    </div>
+  </div>
+
+<script>
+function fmtBRL(n){return 'R$ ' + (n||0)}
+async function fetchCSV(url){ const r = await fetch(url,{cache:'no-store'}); return await r.text(); }
+function parseCSV(text){
+  const lines = text.split(/\r?\n/).filter(Boolean);
+  lines.shift(); // cabeçalho
+  const rows = [];
+  for(const ln of lines){
+    const parts = ln.split(',');
+    if(parts.length<2) continue;
+    // paid_at pode estar na col E (índice 4), senão usa a primeira (timestamp)
+    const when = new Date(parts[4]||parts[0]);
+    const status = (parts[3]||'').toLowerCase();
+    if(status!=='approved') continue;
+    rows.push({when});
+  }
+  return rows.sort((a,b)=>a.when-b.when);
+}
+
+async function refreshStats(){
+  try{
+    const cfg = window.PELADA_CFG;
+    const csv = await fetchCSV(cfg.SHEET_CSV_URL);
+    const rows = parseCSV(csv);
+    const total = rows.length;
+    document.getElementById('statTotal').textContent = 'Pagantes: ' + total;
+    document.getElementById('statValor').textContent = 'Arrecadado: ' + fmtBRL(total * (cfg.PRECO||20));
+    document.getElementById('statTitulares').textContent = 'Titulares: ' + Math.min(total,(cfg.TITULARES_MAX||15)) + '/' + (cfg.TITULARES_MAX||15);
+
+    if(total >= (cfg.TITULARES_MAX||15)){
+      // desativa botão do MP visualmente
+      document.getElementById('fullMsg').style.display = 'block';
+      const payArea = document.getElementById('payArea');
+      payArea.classList.add('disabled');
+    }
+  }catch(e){ console.error(e); }
+}
+
+document.addEventListener('DOMContentLoaded', refreshStats);
+</script>
+</body>
+</html>
