@@ -17,7 +17,12 @@
     button{margin-top:14px;width:100%;padding:12px 16px;border:0;border-radius:12px;background:var(--accent);color:#0a0f0d;font-weight:700;font-size:16px;cursor:pointer}
     button[disabled]{opacity:.6;cursor:not-allowed}
     #status{margin-top:10px;font-size:14px;color:var(--muted)}
+    .err{color:#ffb4bd}
   </style>
+  <!-- Evita cache do config.js durante testes -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+  <meta http-equiv="Pragma" content="no-cache"/>
+  <meta http-equiv="Expires" content="0"/>
 </head>
 <body>
   <div class="wrap">
@@ -33,6 +38,7 @@
     </div>
   </div>
 
+  <!-- IMPORTANTE: o config.js precisa estar na MESMA PASTA -->
   <script src="config.js"></script>
 
   <!-- Firebase (modular v10) -->
@@ -40,11 +46,31 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
+    // 1) pega o config do window
     const CFG = window.PELADA_CFG;
+
+    // 2) verificação clara (evita "app/no-options")
+    function assertFirebaseConfig(){
+      const err = (msg) => { 
+        const st=document.getElementById('status'); 
+        st.innerHTML = `<span class="err">⚠️ ${msg}</span>`;
+        throw new Error(msg);
+      };
+      if(!CFG) err("config.js não carregou (window.PELADA_CFG indefinido). Verifique o caminho/arquivo.");
+      if(!CFG.FIREBASE) err("Falta PELADA_CFG.FIREBASE no config.js.");
+      const req = ["apiKey","authDomain","projectId","appId"];
+      for(const k of req){
+        if(!CFG.FIREBASE[k]) err(`Falta FIREBASE.${k} no config.js.`);
+      }
+    }
+    assertFirebaseConfig();
+
+    // 3) inicializa Firebase
     const app = initializeApp(CFG.FIREBASE);
     const db  = getFirestore(app);
-    const col = collection(db, CFG.COLLECTION);
+    const col = collection(db, CFG.COLLECTION || "inscricoes");
 
+    // 4) handler do botão
     const btn = document.getElementById('enviar');
     const st  = document.getElementById('status');
 
@@ -55,18 +81,13 @@
       btn.disabled = true; st.textContent = 'Enviando...';
 
       try{
-        await addDoc(col, {
-          nome,
-          createdAt: serverTimestamp()
-        });
-
+        await addDoc(col, { nome, createdAt: serverTimestamp() });
         sessionStorage.setItem('ultimo_nome_pelada', nome);
-
         st.innerHTML = '✅ Enviado! Abrindo lista...';
-        setTimeout(()=> location.href = 'adm.html', 800);
+        setTimeout(()=> location.href = 'adm.html', 700);
       }catch(e){
         console.error(e);
-        st.textContent = 'Erro ao enviar. Tente de novo.';
+        st.innerHTML = '<span class="err">Erro ao enviar. Veja o console.</span>';
         btn.disabled = false;
       }
     });
