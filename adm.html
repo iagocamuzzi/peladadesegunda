@@ -4,7 +4,6 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>ADM – Lista da Pelada</title>
-
   <style>
     :root{
       --bg:#0f1216;--card:#141922;--txt:#e7edf6;--muted:#98a7be;
@@ -14,37 +13,27 @@
     body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial;background:var(--bg);color:var(--txt)}
     .wrap{max-width:900px;margin:32px auto;padding:0 16px}
     .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px;box-shadow:0 8px 30px rgba(0,0,0,.25)}
-
     h1{margin:0 0 10px;font-size:24px}
     .muted{color:var(--muted);margin-bottom:18px;font-size:14px}
-
     .row{display:flex;gap:20px;flex-wrap:wrap}
     .col{flex:1;min-width:300px}
-
     ul{list-style:none;padding:0;margin:0;display:grid;gap:8px}
     li{padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:var(--ink);transition:all .20s;position:relative}
-
     li.is-new{border-color:var(--ok)}
     li.pending::after{
       content:"aguardando";position:absolute;right:12px;top:10px;
-      font-size:11px;color:#8ee3c3;border:1px dashed #31785f;
-      padding:2px 6px;border-radius:12px;
+      font-size:11px;color:#8ee3c3;border:1px dashed #31785f;padding:2px 6px;border-radius:12px;
     }
-
-    .btn{margin-top:12px;padding:12px 16px;width:100%;border:0;
-         border-radius:12px;background:var(--accent);color:#0a0f0d;
-         font-weight:700;font-size:16px;cursor:pointer}
-
+    .btn{margin-top:12px;padding:12px 16px;width:100%;border:0;border-radius:12px;background:var(--accent);color:#0a0f0d;font-weight:700;font-size:16px;cursor:pointer}
     #resume{color:var(--muted);margin-top:14px;font-size:14px}
     #log{margin-top:10px;color:var(--muted);font-size:13px;min-height:18px}
   </style>
 </head>
-
 <body>
 <div class="wrap">
   <div class="card">
     <h1>Lista da Pelada – ADM</h1>
-    <p class="muted">Os nomes aparecem imediatamente e são confirmados assim que a planilha atualizar. Leituras instáveis do Google são filtradas para evitar “sobe-e-desce”.</p>
+    <p class="muted">Mudanças só entram na tela após 2 leituras idênticas seguidas (anti-oscilação). O último nome aparece na hora como “(aguardando)” até confirmar na planilha.</p>
 
     <button id="btnWpp" class="btn">Enviar lista no WhatsApp</button>
     <div id="resume"></div>
@@ -68,220 +57,209 @@
 
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 <script src="config.js"></script>
-
 <script>
   // ======= CONFIG =======
   const cfg = window.PELADA_CFG || {};
-  // Se quiser, pode setar explicitamente no config.js:
-  // SHEET_GVIZ_CSV_URL: "https://docs.google.com/spreadsheets/d/ID/gviz/tq?tqx=out:csv&gid=GID"
-  const CSV_GVIZ = (cfg.SHEET_GVIZ_CSV_URL || "").trim();
-  const CSV_PUB  = (cfg.SHEET_CSV_URL       || "").trim();
-  const MAX_TIT  = cfg.TITULARES_MAX ?? 15;
-  const PRECO    = cfg.PRECO || 20;
+  // Use um ÚNICO endpoint: gviz se existir, senão o publicado
+  const SHEET_URL = (cfg.SHEET_GVIZ_CSV_URL || cfg.SHEET_CSV_URL || "").trim();
+  const MAX_TIT = cfg.TITULARES_MAX ?? 15;
+  const PRECO   = cfg.PRECO || 20;
+
+  if(!SHEET_URL){
+    console.error("Defina SHEET_GVIZ_CSV_URL ou SHEET_CSV_URL no config.js");
+  }
 
   // ======= ESTADO =======
   let ultimoNome = (sessionStorage.getItem('ultimo_nome_pelada')||'').toUpperCase() || null;
 
-  // snapshot estável
-  let stableNames = [];
+  // snapshot estável aceito e seu hash
+  let stable = [];
+  let stableHash = "";
 
-  // estabilização
-  let lastSizeCandidate = null;
-  let sameSizeCount = 0; // leituras consecutivas com o MESMO tamanho (para quedas grandes)
+  // candidato a próxima versão (precisa repetir igual)
+  const CONSEC_REQUIRED = 2;
+  let candidateHash = "";
+  let candidateCount = 0;
+  let candidateArray = [];
 
   // polling (após inserir)
   let pollTimer = null;
   let pollStart = null;
 
-  const normalize = s => (s||"").toString().trim().replace(/\s+/g,' ').toUpperCase();
+  // ======= HELPERS =======
+  const norm = s => (s||"").toString().trim().replace(/\s+/g,' ').toUpperCase();
+  const hashArr = arr => JSON.stringify(arr);
 
   function parseDateAny(s){
     if(!s) return null;
     if(/^\d{2}\/\d{2}\/\d{4}/.test(s)){
       const [datePart, timePart=""] = s.split(/\s+/);
       const [d,m,y] = datePart.split('/').map(Number);
-      let h=0,mi=0,se=0;
-      if(timePart){ const t=timePart.split(':').map(Number); h=t[0]||0; mi=t[1]||0; se=t[2]||0; }
+      let h=0,mi=0,se=0; if(timePart){ const t=timePart.split(':').map(Number); h=t[0]||0; mi=t[1]||0; se=t[2]||0; }
       return new Date(y, m-1, d, h, mi, se);
     }
-    const t = Date.parse(s);
-    return isNaN(t) ? null : new Date(t);
+    const t = Date.parse(s); return isNaN(t)?null:new Date(t);
   }
 
   function buildMsg(tit, sup, tot){
     const L=[];
     L.push("PELADA DE SEGUNDA ⚽\n");
-    L.push("Titulares:");
-    tit.forEach((n,i)=>L.push((i+1)+". "+n));
-    L.push("\nSuplentes:");
-    L.push(sup.length?sup.join(", "):"—");
+    L.push("Titulares:"); tit.forEach((n,i)=>L.push((i+1)+". "+n));
+    L.push("\nSuplentes:"); L.push(sup.length?sup.join(", "):"—");
     L.push("\nTotal de jogadores: "+tot);
     L.push("Valor arrecadado: R$ "+(tot*PRECO).toFixed(2).replace('.',','));
     return L.join("\n");
   }
 
-  function renderLista(nomes, highlight=null){
+  function render(arr, highlight=null){
     const tit = document.getElementById('tit');
     const sup = document.getElementById('sup');
     tit.innerHTML=""; sup.innerHTML="";
 
-    const titu = nomes.slice(0,MAX_TIT);
-    const supl = nomes.slice(MAX_TIT);
+    const titulares = arr.slice(0,MAX_TIT);
+    const suplentes  = arr.slice(MAX_TIT);
 
-    titu.forEach((n,i)=>{
+    titulares.forEach((n,i)=>{
       const li=document.createElement('li');
       li.textContent = (i+1)+"º — "+n;
-      if(highlight && normalize(n)===normalize(highlight)) li.classList.add("is-new");
+      if(highlight && norm(n)===norm(highlight)) li.classList.add("is-new");
       if(/\(AGUARDANDO\)/i.test(n)) li.classList.add("pending");
       tit.appendChild(li);
     });
-    supl.forEach((n,i)=>{
+    suplentes.forEach((n,i)=>{
       const li=document.createElement('li');
       li.textContent = (i+1)+" — "+n;
-      if(highlight && normalize(n)===normalize(highlight)) li.classList.add("is-new");
+      if(highlight && norm(n)===norm(highlight)) li.classList.add("is-new");
       if(/\(AGUARDANDO\)/i.test(n)) li.classList.add("pending");
       sup.appendChild(li);
     });
 
     document.getElementById('resume').innerHTML =
-      `Total: <b>${nomes.length}</b> &nbsp;|&nbsp;
-       Arrecadado: <b>R$ ${(nomes.length*PRECO).toFixed(2).replace('.',',')}</b>`;
+      `Total: <b>${arr.length}</b> &nbsp;|&nbsp; Arrecadado: <b>R$ ${(arr.length*PRECO).toFixed(2).replace('.',',')}</b>`;
 
-    window._wppMessage = buildMsg(titu, supl, nomes.length);
+    window._wppMessage = buildMsg(titulares, suplentes, arr.length);
     document.getElementById("maxTit").textContent = MAX_TIT;
   }
 
-  // ======= CSV loaders (gviz primeiro) =======
-  async function fetchCSV(url){
-    const u = url + (url.includes('?')?'&':'?') + 'cacheBust=' + Date.now();
-    const r = await fetch(u, {cache:'no-store'});
-    if(!r.ok) throw new Error("Falha CSV " + r.status);
-    return r.text();
+  // ======= CSV =======
+  async function fetchCSV(){
+    const url = SHEET_URL + (SHEET_URL.includes('?')?'&':'?') + 'cacheBust=' + Date.now();
+    const resp = await fetch(url, { cache:'no-store' });
+    if(!resp.ok) throw new Error("Falha ao carregar CSV: " + resp.status);
+    return resp.text();
   }
 
-  async function fetchAnyCSV(){
-    if(CSV_GVIZ){
-      try{ return await fetchCSV(CSV_GVIZ); }catch(e){ /*fallback*/ }
-    }
-    if(CSV_PUB){
-      return await fetchCSV(CSV_PUB);
-    }
-    throw new Error("Nenhum URL de planilha definido em config.js");
-  }
-
-  function parseCSVToNames(csvText){
+  function parseCSVToArray(csvText){
     const clean = csvText.replace(/^\uFEFF/, '');
     const parsed = Papa.parse(clean, {header:true, skipEmptyLines:true});
     const rows = parsed.data.map(r=>{
-      const h = Object.keys(r);
-      return {time:r[h[0]], name:normalize(r[h[1]])};
+      const h = Object.keys(r); // 1ª col = data/hora, 2ª col = nome
+      return {time:r[h[0]], name: norm(r[h[1]])};
     }).filter(r=>r.name);
 
-    // Filtro leve: últimos 90 dias (evita lixo antigo)
-    const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-90);
-    let filtrados = rows
-      .map(r=>({...r, date:parseDateAny(r.time)}))
-      .filter(r=> r.date && r.date >= cutoff)
-      .sort((a,b)=> a.date - b.date);
+    // Ordena por data (quando existir), depois por nome para estabilidade
+    const enriched = rows.map(r=> ({...r, date: parseDateAny(r.time)}));
+    enriched.sort((a,b)=>{
+      const ta = a.date ? a.date.getTime() : 0;
+      const tb = b.date ? b.date.getTime() : 0;
+      if(ta!==tb) return ta - tb;
+      return a.name.localeCompare(b.name);
+    });
 
-    // Se ficou vazio por datas mal formatadas, aceita tudo
-    if(filtrados.length===0){
-      filtrados = rows.map(r=>({...r, date:parseDateAny(r.time)}))
-                      .sort((a,b)=> (a.date||0)-(b.date||0));
-    }
-    return filtrados.map(r=>r.name);
+    return enriched.map(r=> r.name);
   }
 
-  // ======= Estabilização revisada =======
-  // Aceita imediatamente se veio VAZIO (você limpou a planilha).
-  // Se a nova leitura for muito menor, só aceita quando
-  // tivermos 2 leituras consecutivas com o MESMO tamanho (confirma que “assentou”).
-  function acceptOrHold(newNames){
-    const oldLen = stableNames.length;
-    const newLen = newNames.length;
-
-    if(newLen === 0){ // limpeza total: aceitar na hora
-      sameSizeCount = 0; lastSizeCandidate = null;
+  // ======= ACEITAÇÃO: precisa repetir igual 2x =======
+  function consider(arr){
+    const h = hashArr(arr);
+    if(h === stableHash){
+      // nada mudou
+      candidateHash = ""; candidateCount = 0; candidateArray = [];
+      return false;
+    }
+    if(h === candidateHash){
+      candidateCount += 1;
+    }else{
+      candidateHash = h;
+      candidateArray = arr.slice();
+      candidateCount = 1;
+    }
+    if(candidateCount >= CONSEC_REQUIRED){
+      // aceitar mudança
+      stable = candidateArray.slice();
+      stableHash = candidateHash;
+      candidateHash = ""; candidateCount = 0; candidateArray = [];
       return true;
     }
-    if(oldLen === 0) return true; // primeira carga
-
-    const bigDrop = (oldLen - newLen) > 5 || (newLen < oldLen * 0.7);
-
-    if(!bigDrop){
-      sameSizeCount = 0; lastSizeCandidate = null;
-      return true;
-    }
-
-    // queda grande → precisa confirmar duas leituras iguais seguidas
-    if(lastSizeCandidate === newLen){
-      sameSizeCount++;
-    } else {
-      lastSizeCandidate = newLen;
-      sameSizeCount = 1;
-    }
-    return sameSizeCount >= 2; // aceita na 2ª confirmação
+    return false;
   }
 
-  async function loadOnce({highlight=null, optimistic=false}={}){
+  async function loadOnce({optimistic=false, highlight=null}={}){
     try{
-      const csv = await fetchAnyCSV();
-      const names = parseCSVToNames(csv);
+      const csv = await fetchCSV();
+      const list = parseCSVToArray(csv);
 
-      if(acceptOrHold(names)){
-        stableNames = names.slice();
-        renderLista(stableNames, highlight);
+      const changed = consider(list);
+      if(changed){
+        render(stable, highlight);
         document.getElementById('log').textContent = "";
       }else{
-        document.getElementById('log').textContent =
-          "Leitura possivelmente parcial detectada. Aguardando estabilizar…";
+        // mantém a tela como está; opcionalmente mostre status
+        document.getElementById('log').textContent = "";
       }
 
-      // Otimista: injeta provisório se ainda não confirmou
-      if(optimistic && ultimoNome && !stableNames.includes(ultimoNome)){
-        const tmp = stableNames.slice();
+      // Otimista: só na primeira passagem do fluxo de inserção
+      if(optimistic && ultimoNome && !stable.includes(ultimoNome)){
+        const tmp = stable.slice();
         tmp.push(`${ultimoNome} (aguardando)`);
-        renderLista(tmp, null);
+        render(tmp, null);
       }
 
-      return stableNames;
-    }catch(err){
-      console.error(err);
-      document.getElementById('log').textContent = "Erro: " + err.message;
-      return stableNames;
+      return stable.slice();
+    }catch(e){
+      console.error(e);
+      document.getElementById('log').textContent = "Erro: " + e.message;
+      return stable.slice();
     }
   }
 
-  // ======= Fluxo principal =======
+  // ======= FLUXO =======
   async function start(){
-    await loadOnce();
+    // primeira carga aceita qualquer estado como estável
+    try{
+      const csv = await fetchCSV();
+      const first = parseCSVToArray(csv);
+      stable = first.slice(); stableHash = hashArr(stable);
+      render(stable, null);
+    }catch(e){
+      document.getElementById('log').textContent = "Erro: " + e.message;
+    }
 
+    // se acabou de inserir, mostra otimista e entra em polling
     if(ultimoNome){
       await loadOnce({optimistic:true});
-
+      let tries = 0;
       pollStart = Date.now();
       pollTimer = setInterval(async ()=>{
-        const names = await loadOnce();
-        const ok = names.includes(ultimoNome);
-
+        tries++;
+        const cur = await loadOnce({});
+        const ok = cur.includes(ultimoNome);
         if(ok){
           clearInterval(pollTimer); pollTimer=null;
           sessionStorage.removeItem('ultimo_nome_pelada');
-          renderLista(stableNames, ultimoNome);
+          render(stable, ultimoNome);
           ultimoNome = null;
-          setTimeout(()=> document.querySelectorAll('.is-new')
-            .forEach(n=> n.classList.remove('is-new')), 3500);
+          setTimeout(()=> document.querySelectorAll('.is-new').forEach(n=> n.classList.remove('is-new')), 3500);
         }
-        if(Date.now()-pollStart > 30000){
+        if(Date.now() - pollStart > 30000){
           clearInterval(pollTimer); pollTimer=null;
-          document.getElementById('log').textContent =
-            "Ainda não confirmou na planilha. Tenta novamente em instantes.";
+          document.getElementById('log').textContent = "Ainda confirmando na planilha…";
         }
       }, 3000);
     }
   }
 
-  document.addEventListener("DOMContentLoaded", ()=>{
+  document.addEventListener('DOMContentLoaded', ()=>{
     document.getElementById("btnWpp").onclick = ()=>{
       const link="https://wa.me/?text="+encodeURIComponent(window._wppMessage||"");
       window.open(link,"_blank");
@@ -289,6 +267,5 @@
     start();
   });
 </script>
-
 </body>
 </html>
