@@ -7,7 +7,7 @@
   <style>
     :root{--bg:#0f1216;--card:#141922;--txt:#e7edf6;--muted:#98a7be;--accent:#25D366}
     *{box-sizing:border-box}
-    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial;background:var(--bg);color:var(--txt)}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial;background:var(--bg);color:var(--txt)}
     .wrap{max-width:540px;margin:36px auto;padding:0 16px}
     .card{background:var(--card);border:1px solid #222c3a;border-radius:14px;padding:20px;box-shadow:0 8px 30px rgba(0,0,0,.25)}
     h1{margin:0 0 8px;font-size:22px}
@@ -26,68 +26,50 @@
       <p class="muted">Digite seu nome exatamente como quer que apareça na lista.</p>
 
       <label for="nome">Seu nome</label>
-      <input id="nome" type="text" placeholder="EX.: IAGO CAMUZZI" autocomplete="name"
-             oninput="this.value=this.value.toUpperCase()"/>
+      <input id="nome" type="text" placeholder="EX.: IAGO CAMUZZI" oninput="this.value=this.value.toUpperCase()"/>
 
-      <button id="enviar" onclick="handleEnviar()">Enviar</button>
+      <button id="enviar">Enviar</button>
       <div id="status"></div>
     </div>
   </div>
 
   <script src="config.js"></script>
-  <script>
-    // Envio para Google Forms usando seu config.js REAL
-    async function submitToGoogleForms(nome){
-      const cfg = window.PELADA_CFG || {};
 
-      // Usando exclusivamente os campos que você realmente tem
-      const action = (cfg.GOOGLE_FORM_ACTION || "").trim();
-      const entry  = (cfg.GOOGLE_FORM_ENTRY_NAME || "").trim();
+  <!-- Firebase (modular v10) -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-      if(!action || !entry){
-        console.error("GOOGLE_FORM_ACTION/GOOGLE_FORM_ENTRY_NAME ausentes em config.js");
-        return false;
-      }
+    const CFG = window.PELADA_CFG;
+    const app = initializeApp(CFG.FIREBASE);
+    const db  = getFirestore(app);
+    const col = collection(db, CFG.COLLECTION);
 
-      const body = new URLSearchParams();
-      body.append(entry, nome);
+    const btn = document.getElementById('enviar');
+    const st  = document.getElementById('status');
 
-      try{
-        await fetch(action, {
-          method: "POST",
-          mode: "no-cors",
-          body
-        });
-        return true; // no-cors sempre parece OK
-      }catch(e){
-        console.error(e);
-        return false;
-      }
-    }
-
-    async function handleEnviar(){
+    btn.addEventListener('click', async ()=>{
       const nome = (document.getElementById('nome').value||'').trim().toUpperCase();
       if(!nome){ alert('Digite seu nome.'); return; }
 
-      const btn = document.getElementById('enviar');
-      const st  = document.getElementById('status');
+      btn.disabled = true; st.textContent = 'Enviando...';
 
-      btn.disabled = true;
-      st.textContent = 'Enviando...';
+      try{
+        await addDoc(col, {
+          nome,
+          createdAt: serverTimestamp()
+        });
 
-      const ok = await submitToGoogleForms(nome);
-
-      if(ok){
-        // Nome aparece na hora no ADM (confirmação otimista)
         sessionStorage.setItem('ultimo_nome_pelada', nome);
 
-        st.innerHTML = '✅ Nome enviado! Redirecionando para a lista...';
-        setTimeout(()=> location.href = 'adm.html', 900);
-      }else{
-        st.textContent = 'Falha ao enviar. Verifique config.js.';
+        st.innerHTML = '✅ Enviado! Abrindo lista...';
+        setTimeout(()=> location.href = 'adm.html', 800);
+      }catch(e){
+        console.error(e);
+        st.textContent = 'Erro ao enviar. Tente de novo.';
         btn.disabled = false;
       }
-    }
+    });
   </script>
 </body>
 </html>
