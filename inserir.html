@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Inserir nome na lista</title>
+  <style>
+    :root{--bg:#0f1216;--card:#141922;--txt:#e7edf6;--muted:#98a7be;--accent:#25D366}
+    *{box-sizing:border-box} body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial;background:var(--bg);color:var(--txt)}
+    .wrap{max-width:720px;margin:32px auto;padding:0 16px}
+    .card{background:var(--card);border:1px solid #222c3a;border-radius:14px;padding:20px;box-shadow:0 8px 30px rgba(0,0,0,.25)}
+    h1{margin:0 0 8px;font-size:22px}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    input[type=text]{flex:1;min-width:260px;padding:12px 14px;border-radius:10px;border:1px solid #293447;background:#0d1117;color:#e7edf6}
+    .btn{cursor:pointer;background:#2b3546;color:#fff;border:0;border-radius:10px;padding:12px 16px;font-weight:600}
+    .btn:disabled{opacity:.6}
+    .ok{color:#9fe3b3}
+    .muted{color:var(--muted)}
+    .sep{height:1px;background:#263244;margin:16px 0}
+  </style>
+  <script defer src="config.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Confirme seu nome</h1>
+      <p class="muted">Digite seu <b>nome completo</b> para entrar na lista. A ordem é pelo horário (HH:MM:SS) de envio.</p>
+      <div class="row">
+        <input id="nome" placeholder="SEU NOME (MAIÚSCULAS)" oninput="this.value=this.value.toUpperCase()">
+        <button id="enviar" class="btn">Enviar</button>
+      </div>
+      <div class="sep"></div>
+      <p id="status" class="muted"></p>
+      <p><a class="btn" href="adm.html">Ver lista (ADM)</a> <a class="btn" href="index.html">Voltar</a></p>
+    </div>
+  </div>
+
+<script>
+function submitToGoogleForms(nome){
+  return new Promise((resolve)=>{
+    const cfg = window.PELADA_CFG;
+    if(cfg.GOOGLE_FORM_ACTION.includes('COLE_AQUI')||cfg.GOOGLE_FORM_ENTRY_NAME.includes('entry.123')){
+      alert('Configure GOOGLE_FORM_ACTION e GOOGLE_FORM_ENTRY_NAME em config.js'); return resolve(false);
+    }
+    const form = document.createElement('form');
+    form.action = cfg.GOOGLE_FORM_ACTION;
+    form.method = 'POST';
+    form.target = 'hidden_iframe';
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.name = cfg.GOOGLE_FORM_ENTRY_NAME;
+    input.value = nome;
+
+    form.appendChild(input);
+    document.body.appendChild(form);
+
+    let iframe = document.getElementById('hidden_iframe');
+    if(!iframe){
+      iframe = document.createElement('iframe');
+      iframe.name = 'hidden_iframe';
+      iframe.id = 'hidden_iframe';
+      iframe.style.display = 'none';
+      document.body.appendChild(iframe);
+    }
+    iframe.onload = ()=> resolve(true);
+    form.submit();
+    // fallback se onload não disparar
+    setTimeout(()=> resolve(true), 1200);
+  });
+}
+
+async function handleEnviar(){
+  const nome = (document.getElementById('nome').value||'').trim().toUpperCase();
+  if(!nome){ alert('Digite seu nome.'); return; }
+  document.getElementById('enviar').disabled = true;
+  document.getElementById('status').textContent = 'Enviando...';
+  const ok = await submitToGoogleForms(nome);
+  if(ok){
+    document.getElementById('status').innerHTML = '✅ Nome enviado! Aguarde 1–2s e <b>veja sua posição</b> na lista.';
+    setTimeout(()=> location.href = 'adm.html', 1200);
+  }else{
+    document.getElementById('status').textContent = 'Falha ao enviar. Verifique config.js';
+    document.getElementById('enviar').disabled = false;
+  }
+}
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  document.getElementById('enviar').addEventListener('click', handleEnviar);
+});
+</script>
+</body>
+</html>
