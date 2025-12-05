@@ -38,14 +38,12 @@
     // Envio para Google Forms/Apps Script usando campos do config.js
     async function submitToGoogleForms(nome){
       const cfg = window.PELADA_CFG || {};
-      // Caso você use endpoint próprio (Apps Script/Backend), configure em config.js:
-      // PELADA_CFG.FORMS_ACTION  -> URL
-      // PELADA_CFG.FORMS_ENTRY_NAME -> nome do campo (ex.: "entry.123456")
-      const action = (cfg.FORMS_ACTION||"").trim();
-      const entry  = (cfg.FORMS_ENTRY_NAME||"").trim();
+      // Aceita tanto FORMS_* quanto GOOGLE_FORM_* (compatível com seu config.js atual)
+      const action = (cfg.FORMS_ACTION || cfg.GOOGLE_FORM_ACTION || "").trim();
+      const entry  = (cfg.FORMS_ENTRY_NAME || cfg.GOOGLE_FORM_ENTRY_NAME || "").trim();
 
       if(!action || !entry){
-        console.error("FORMS_ACTION/ENTRY_NAME ausentes em config.js");
+        console.error("FORMS_ACTION/ENTRY_NAME (ou GOOGLE_FORM_ACTION/GOOGLE_FORM_ENTRY_NAME) ausentes em config.js");
         return false;
       }
 
@@ -55,10 +53,10 @@
       try{
         const resp = await fetch(action, {
           method: "POST",
-          mode: "no-cors", // Google Forms/Apps Script costuma exigir
+          mode: "no-cors",
           body
         });
-        // "no-cors" sempre parece "ok" do ponto de vista do navegador; seguimos como sucesso.
+        // Em no-cors, não temos status legível; consideramos sucesso.
         return true;
       }catch(e){
         console.error(e);
@@ -79,7 +77,7 @@
       const ok = await submitToGoogleForms(nome);
 
       if(ok){
-        // Salva para aparecer IMEDIATAMENTE no ADM como provisório
+        // Mostra IMEDIATO no ADM (confirmação otimista)
         sessionStorage.setItem('ultimo_nome_pelada', nome);
         st.innerHTML = '✅ Nome enviado! Redirecionando para a lista...';
         setTimeout(()=> location.href = 'adm.html', 900);
