@@ -26,7 +26,8 @@
       <p class="muted">Digite seu nome exatamente como quer que apareça na lista.</p>
 
       <label for="nome">Seu nome</label>
-      <input id="nome" type="text" placeholder="EX.: IAGO CAMUZZI" autocomplete="name" oninput="this.value=this.value.toUpperCase()"/>
+      <input id="nome" type="text" placeholder="EX.: IAGO CAMUZZI" autocomplete="name"
+             oninput="this.value=this.value.toUpperCase()"/>
 
       <button id="enviar" onclick="handleEnviar()">Enviar</button>
       <div id="status"></div>
@@ -35,15 +36,16 @@
 
   <script src="config.js"></script>
   <script>
-    // Envio para Google Forms/Apps Script usando campos do config.js
+    // Envio para Google Forms usando seu config.js REAL
     async function submitToGoogleForms(nome){
       const cfg = window.PELADA_CFG || {};
-      // Aceita tanto FORMS_* quanto GOOGLE_FORM_* (compatível com seu config.js atual)
-      const action = (cfg.FORMS_ACTION || cfg.GOOGLE_FORM_ACTION || "").trim();
-      const entry  = (cfg.FORMS_ENTRY_NAME || cfg.GOOGLE_FORM_ENTRY_NAME || "").trim();
+
+      // Usando exclusivamente os campos que você realmente tem
+      const action = (cfg.GOOGLE_FORM_ACTION || "").trim();
+      const entry  = (cfg.GOOGLE_FORM_ENTRY_NAME || "").trim();
 
       if(!action || !entry){
-        console.error("FORMS_ACTION/ENTRY_NAME (ou GOOGLE_FORM_ACTION/GOOGLE_FORM_ENTRY_NAME) ausentes em config.js");
+        console.error("GOOGLE_FORM_ACTION/GOOGLE_FORM_ENTRY_NAME ausentes em config.js");
         return false;
       }
 
@@ -51,13 +53,12 @@
       body.append(entry, nome);
 
       try{
-        const resp = await fetch(action, {
+        await fetch(action, {
           method: "POST",
           mode: "no-cors",
           body
         });
-        // Em no-cors, não temos status legível; consideramos sucesso.
-        return true;
+        return true; // no-cors sempre parece OK
       }catch(e){
         console.error(e);
         return false;
@@ -77,12 +78,13 @@
       const ok = await submitToGoogleForms(nome);
 
       if(ok){
-        // Mostra IMEDIATO no ADM (confirmação otimista)
+        // Nome aparece na hora no ADM (confirmação otimista)
         sessionStorage.setItem('ultimo_nome_pelada', nome);
+
         st.innerHTML = '✅ Nome enviado! Redirecionando para a lista...';
         setTimeout(()=> location.href = 'adm.html', 900);
       }else{
-        st.textContent = 'Falha ao enviar. Verifique config.js e tente novamente.';
+        st.textContent = 'Falha ao enviar. Verifique config.js.';
         btn.disabled = false;
       }
     }
